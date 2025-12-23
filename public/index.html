@@ -112,6 +112,30 @@
         margin: 4px 0;
         font-size: 12px;
       }
+      .llm-panel {
+        margin-top: 8px;
+        padding: 8px;
+        border: 1px solid #2f3a45;
+        border-radius: 8px;
+        background: #10161b;
+        font-size: 12px;
+      }
+      .llm-panel .title {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .llm-panel .error {
+        color: #e07272;
+        margin-top: 6px;
+      }
+      .llm-panel .actions {
+        position: static;
+        transform: none;
+        display: flex;
+        gap: 8px;
+        justify-content: flex-start;
+        margin-top: 8px;
+      }
       .seats {
         position: relative;
         width: 100%;
@@ -152,6 +176,16 @@
         bottom: 80px;
         right: 90px;
       }
+      .seat .seat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 6px;
+      }
+      .seat .settings-btn {
+        font-size: 11px;
+        padding: 2px 6px;
+      }
       button {
         background: #121a1a;
         color: #e6eef3;
@@ -162,6 +196,61 @@
       }
       button:hover {
         background: #172120;
+      }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+      }
+      .modal {
+        background: #0c1114;
+        border: 1px solid #1f2a33;
+        border-radius: 10px;
+        padding: 12px;
+        min-width: 280px;
+      }
+      .modal h2 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+      }
+      .modal label {
+        display: block;
+        margin: 8px 0 4px;
+        font-size: 12px;
+      }
+      .modal input,
+      .modal select {
+        width: 100%;
+        padding: 6px;
+        border-radius: 6px;
+        border: 1px solid #2a3c33;
+        background: #0f1518;
+        color: #e6eef3;
+      }
+      .modal textarea {
+        width: 100%;
+        padding: 6px;
+        border-radius: 6px;
+        border: 1px solid #2a3c33;
+        background: #0f1518;
+        color: #e6eef3;
+        min-height: 80px;
+        resize: vertical;
+      }
+      .modal .muted {
+        font-size: 11px;
+        color: #9fb0ba;
+        margin-top: 4px;
+      }
+      .modal .row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+        justify-content: flex-end;
       }
     </style>
   </head>
@@ -175,9 +264,9 @@
           </div>
           <div id="board" class="board"></div>
           <div id="actions" class="actions"></div>
-        </div>
       </div>
-      <div id="summary" class="summary">
+    </div>
+    <div id="summary" class="summary">
         <div class="summary-column">
           <section>
             <h2>Pots</h2>
@@ -196,6 +285,29 @@
         </div>
       </div>
     </div>
-    <script type="module" src="./main.js"></script>
+    <div id="settings-backdrop" class="modal-backdrop">
+      <div class="modal">
+        <h2 id="settings-title">Seat Settings</h2>
+        <label for="settings-stack">Stack (next hand)</label>
+        <input id="settings-stack" type="number" min="0" />
+        <label for="settings-mode">Action Mode</label>
+        <select id="settings-mode">
+          <option value="manual">manual</option>
+          <option value="llm">llm</option>
+        </select>
+        <div id="prompt-settings">
+          <label for="settings-prompt-profile">Prompt Profile</label>
+          <select id="settings-prompt-profile"></select>
+          <label for="settings-custom-prompt">Custom Prompt</label>
+          <textarea id="settings-custom-prompt"></textarea>
+          <div class="muted" id="settings-prompt-note"></div>
+        </div>
+        <div class="row">
+          <button id="settings-cancel">Cancel</button>
+          <button id="settings-save">Save</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>
