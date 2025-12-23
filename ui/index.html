@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CardPT v0.1</title>
+    <style>
+      body {
+        font-family: "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #0b0f12;
+        color: #e6eef3;
+      }
+      .table {
+        border: 1px solid #1f2a33;
+        border-radius: 12px;
+        padding: 16px;
+        background: #11181d;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .seat {
+        border: 1px solid #22303a;
+        border-radius: 8px;
+        padding: 8px;
+        min-width: 140px;
+        background: #0f1418;
+      }
+      .actions {
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>CardPT v0.1</h1>
+    <div class="table">
+      <div id="seats" class="row"></div>
+      <div id="board" class="row"></div>
+      <div id="actions" class="actions"></div>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
