@@ -39,5 +39,7 @@ export function createInitialState(config: GameConfig): GameState {
     lastRaiseSize: config.bigBlind,
     actionsThisStreet: 0,
     canRaise: SEATS.map(() => true),
+    hasActedThisRound: SEATS.map(() => false),
+    betThisRound: SEATS.map(() => 0),
   };
 }

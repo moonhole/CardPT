@@ -5,43 +5,196 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CardPT v0.1</title>
     <style>
+      :root {
+        color-scheme: dark;
+      }
       body {
         font-family: "Segoe UI", sans-serif;
         margin: 0;
         padding: 24px;
-        background: #0b0f12;
+        background: radial-gradient(circle at top, #0b1a16, #070b0e 60%);
         color: #e6eef3;
       }
-      .table {
-        border: 1px solid #1f2a33;
-        border-radius: 12px;
-        padding: 16px;
-        background: #11181d;
+      h1 {
+        margin: 0 0 16px 0;
+        font-size: 20px;
+        letter-spacing: 0.5px;
       }
-      .row {
+      .layout {
         display: flex;
-        gap: 12px;
+        gap: 16px;
+        align-items: flex-start;
         flex-wrap: wrap;
-        margin-bottom: 12px;
       }
-      .seat {
-        border: 1px solid #22303a;
-        border-radius: 8px;
-        padding: 8px;
-        min-width: 140px;
-        background: #0f1418;
+      .table-wrap {
+        display: flex;
+        justify-content: center;
+        flex: 1 1 640px;
+      }
+      .table {
+        position: relative;
+        width: min(920px, 95vw);
+        height: min(560px, 80vh);
+        border-radius: 200px;
+        background: radial-gradient(circle at center, #0f3b2a, #0a2419 65%);
+        border: 2px solid #1e3a2e;
+        box-shadow: 0 0 0 2px #0a1713 inset;
+        padding: 24px;
+      }
+      .board {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 12px 18px;
+        border-radius: 12px;
+        background: #0c1311;
+        border: 1px solid #233a30;
+        min-width: 220px;
+        text-align: center;
+      }
+      .card {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 44px;
+        margin: 0 4px;
+        border-radius: 6px;
+        background: #f2f2ef;
+        border: 1px solid #d3d3cf;
+        font-size: 14px;
+        font-weight: 600;
+        font-family: "Segoe UI", sans-serif;
+      }
+      .card.small {
+        width: 28px;
+        height: 38px;
+        font-size: 12px;
+      }
+      .card.red {
+        color: #c93b3b;
+      }
+      .card.black {
+        color: #1d262c;
       }
       .actions {
-        margin-top: 12px;
+        position: absolute;
+        bottom: 22px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .summary {
+        display: flex;
+        gap: 16px;
+        flex: 0 0 360px;
+        padding: 12px;
+        border: 1px solid #1f2a33;
+        border-radius: 10px;
+        background: #0c1114;
+      }
+      .summary-column {
+        flex: 1 1 0;
+      }
+      .summary h2 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        letter-spacing: 0.4px;
+      }
+      .summary section {
+        margin-bottom: 12px;
+      }
+      .summary .line {
+        margin: 4px 0;
+        font-size: 12px;
+      }
+      .seats {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      .seat {
+        position: absolute;
+        width: 180px;
+        border: 1px solid #223b31;
+        border-radius: 8px;
+        padding: 8px;
+        background: #0c1512;
+        font-size: 12px;
+      }
+      .seat.top-left {
+        top: 24px;
+        left: 60px;
+      }
+      .seat.top-right {
+        top: 24px;
+        right: 60px;
+      }
+      .seat.left {
+        top: 50%;
+        left: 12px;
+        transform: translateY(-50%);
+      }
+      .seat.right {
+        top: 50%;
+        right: 12px;
+        transform: translateY(-50%);
+      }
+      .seat.bottom-left {
+        bottom: 80px;
+        left: 90px;
+      }
+      .seat.bottom-right {
+        bottom: 80px;
+        right: 90px;
+      }
+      button {
+        background: #121a1a;
+        color: #e6eef3;
+        border: 1px solid #2a3c33;
+        border-radius: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #172120;
       }
     </style>
   </head>
   <body>
     <h1>CardPT v0.1</h1>
-    <div class="table">
-      <div id="seats" class="row"></div>
-      <div id="board" class="row"></div>
-      <div id="actions" class="actions"></div>
+    <div class="layout">
+      <div class="table-wrap">
+        <div class="table">
+          <div class="seats">
+            <div id="seats"></div>
+          </div>
+          <div id="board" class="board"></div>
+          <div id="actions" class="actions"></div>
+        </div>
+      </div>
+      <div id="summary" class="summary">
+        <div class="summary-column">
+          <section>
+            <h2>Pots</h2>
+            <div id="pots"></div>
+          </section>
+          <section>
+            <h2>Pot Resolution</h2>
+            <div id="resolution"></div>
+          </section>
+        </div>
+        <div class="summary-column">
+          <section>
+            <h2>Showdown</h2>
+            <div id="showdown"></div>
+          </section>
+        </div>
+      </div>
     </div>
     <script type="module" src="./main.js"></script>
   </body>

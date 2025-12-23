@@ -53,6 +53,10 @@ function resetStreet(state: GameState, config: GameConfig) {
   state.canRaise = state.players.map(
     (player) => player.status === "active" && player.stack > 0
   );
+  state.betThisRound = state.players.map(() => 0);
+  state.hasActedThisRound = state.players.map(
+    (player) => player.status === "all_in" || player.status === "out"
+  );
   state.currentBet = 0;
   state.lastRaiseSize = config.bigBlind;
   state.minRaiseTo = config.bigBlind;
@@ -69,8 +73,10 @@ function postBlind(
   player.stack -= posted;
   player.totalCommitted += posted;
   player.streetCommitted += posted;
+  state.betThisRound[seat] = player.streetCommitted;
   if (player.stack === 0) {
     player.status = "all_in";
+    state.hasActedThisRound[seat] = true;
   }
   return posted;
 }
@@ -154,6 +160,8 @@ function resolveShowdown(state: GameState) {
     potIndex: number;
     payouts: Record<SeatIndex, number>;
   }[] = [];
+  const seatRanks: Record<SeatIndex, ReturnType<typeof evaluate7>> =
+    Object.create(null);
 
   for (let i = 0; i < pots.length; i += 1) {
     const pot = pots[i];
@@ -165,7 +173,10 @@ function resolveShowdown(state: GameState) {
     let winners: SeatIndex[] = [];
     for (const seat of contenders) {
       const player = state.players[seat];
-      const rank = evaluate7([...player.holeCards, ...state.board]);
+      const rank =
+        seatRanks[seat] ??
+        evaluate7([...player.holeCards, ...state.board]);
+      seatRanks[seat] = rank;
       if (!bestRank || compareHands(rank, bestRank) > 0) {
         bestRank = rank;
         winners = [seat];
@@ -176,12 +187,13 @@ function resolveShowdown(state: GameState) {
     const payouts = distributeOddChips(pot.amount, winners, state.dealerSeat);
     results.push({ potIndex: i, payouts });
   }
-  return { pots, results };
+  return { pots, results, seatRanks };
 }
 
 function awardPots(state: GameState): {
   pots: ReturnType<typeof computePots>;
   awards: { seat: SeatIndex; amount: number; potIndex: number }[];
+  seatRanks: ReturnType<typeof resolveShowdown>["seatRanks"];
 } {
   const showdown = resolveShowdown(state);
   const awards: { seat: SeatIndex; amount: number; potIndex: number }[] = [];
@@ -194,7 +206,30 @@ function awardPots(state: GameState): {
     }
   }
   state.pots = showdown.pots;
-  return { pots: showdown.pots, awards };
+  return { pots: showdown.pots, awards, seatRanks: showdown.seatRanks };
+}
+
+function rankToText(rank: ReturnType<typeof evaluate7>): string {
+  switch (rank.category) {
+    case 8:
+      return "Straight Flush";
+    case 7:
+      return "Four of a Kind";
+    case 6:
+      return "Full House";
+    case 5:
+      return "Flush";
+    case 4:
+      return "Straight";
+    case 3:
+      return "Three of a Kind";
+    case 2:
+      return "Two Pair";
+    case 1:
+      return "One Pair";
+    default:
+      return "High Card";
+  }
 }
 
 function collectUncontested(state: GameState) {
@@ -259,6 +294,12 @@ function ensureHandSetup(
   state.canRaise = state.players.map(
     (player) => player.status === "active" && player.stack > 0
   );
+  state.betThisRound = state.players.map(
+    (player) => player.streetCommitted
+  );
+  state.hasActedThisRound = state.players.map(
+    (player) => player.status === "all_in" || player.status === "out"
+  );
 
   events.push({
     type: "blind_posted",
@@ -290,13 +331,21 @@ function ensureHandSetup(
 }
 
 function isBettingRoundComplete(state: GameState): boolean {
-  const activePlayers = state.players.filter(
-    (p) => p.status === "active" && p.stack >= 0
+  const stillInHand = state.players.filter(
+    (p) => p.status !== "folded" && p.status !== "out"
   );
-  if (activePlayers.length === 0) {
+  if (stillInHand.length === 0) {
     return true;
   }
-  return activePlayers.every((p) => p.streetCommitted === state.currentBet);
+  return stillInHand.every((p) => {
+    if (p.status === "all_in") {
+      return state.hasActedThisRound[p.seat];
+    }
+    return (
+      state.betThisRound[p.seat] === state.currentBet &&
+      state.hasActedThisRound[p.seat]
+    );
+  });
 }
 
 function advancePhase(
@@ -328,7 +377,7 @@ function advancePhase(
   });
 
   resetStreet(state, config);
-  const actionSeat = firstActiveFrom(state, nextSeat(state.smallBlindSeat));
+  const actionSeat = firstActiveFrom(state, state.smallBlindSeat);
   if (actionSeat === null) {
     throw new Error("No active player to act.");
   }
@@ -355,6 +404,29 @@ function resolveHandEnd(
         data: award,
       });
     }
+    const showdownSeats = Object.keys(awards.seatRanks).map(
+      (seat) => Number(seat) as SeatIndex
+    );
+    const seatSummaries = showdownSeats.map((seat) => ({
+      seat,
+      handRank: rankToText(awards.seatRanks[seat]),
+    }));
+    const potWinners = awards.pots.map((pot, index) => ({
+      potIndex: index,
+      amount: pot.amount,
+      eligibleSeats: pot.eligibleSeats,
+      winners: awards.awards
+        .filter((award) => award.potIndex === index)
+        .map((award) => ({ seat: award.seat, amount: award.amount })),
+    }));
+    events.push({
+      type: "hand_summary",
+      handId: state.handId,
+      data: {
+        showdown: seatSummaries,
+        pots: potWinners,
+      },
+    });
   }
   state.phase = "ended";
   events.push({
@@ -406,13 +478,25 @@ function getPlayerToAct(state: GameState): PlayerState {
   return player;
 }
 
+function markActedAfterAggression(state: GameState, actorSeat: SeatIndex) {
+  state.hasActedThisRound = state.players.map((player) => {
+    if (player.seat === actorSeat) {
+      return true;
+    }
+    if (player.status === "active") {
+      return false;
+    }
+    return true;
+  });
+}
+
 function legalActionsForPlayer(
   state: GameState,
   config: GameConfig
 ): LegalAction[] {
   const player = getPlayerToAct(state);
-  const toCall = Math.max(0, state.currentBet - player.streetCommitted);
-  const maxTotal = player.streetCommitted + player.stack;
+  const toCall = Math.max(0, state.currentBet - state.betThisRound[player.seat]);
+  const maxTotal = state.betThisRound[player.seat] + player.stack;
   const actions: LegalAction[] = [];
 
   if (toCall > 0) {
@@ -453,8 +537,8 @@ function applyPlayerAction(
     throw new Error("Action actor does not match action seat.");
   }
 
-  const toCall = Math.max(0, state.currentBet - player.streetCommitted);
-  const maxTotal = player.streetCommitted + player.stack;
+  const toCall = Math.max(0, state.currentBet - state.betThisRound[player.seat]);
+  const maxTotal = state.betThisRound[player.seat] + player.stack;
 
   if (action.type === "fold") {
     if (toCall === 0) {
@@ -462,6 +546,7 @@ function applyPlayerAction(
     }
     player.status = "folded";
     state.canRaise[player.seat] = false;
+    state.hasActedThisRound[player.seat] = true;
     return;
   }
 
@@ -470,6 +555,7 @@ function applyPlayerAction(
       throw new Error("Cannot check when facing a bet.");
     }
     state.canRaise[player.seat] = false;
+    state.hasActedThisRound[player.seat] = true;
     return;
   }
 
@@ -478,11 +564,13 @@ function applyPlayerAction(
     player.stack -= callAmount;
     player.totalCommitted += callAmount;
     player.streetCommitted += callAmount;
+    state.betThisRound[player.seat] += callAmount;
     if (player.stack === 0) {
       player.status = "all_in";
       state.canRaise[player.seat] = false;
     }
     state.canRaise[player.seat] = false;
+    state.hasActedThisRound[player.seat] = true;
     return;
   }
 
@@ -501,11 +589,12 @@ function applyPlayerAction(
     if (betTo < minBet && betTo !== maxTotal) {
       throw new Error("Bet below minimum and not all-in.");
     }
-    const betAmount = betTo - player.streetCommitted;
+    const betAmount = betTo - state.betThisRound[player.seat];
     player.stack -= betAmount;
     player.totalCommitted += betAmount;
     player.streetCommitted += betAmount;
-    state.currentBet = player.streetCommitted;
+    state.betThisRound[player.seat] = betTo;
+    state.currentBet = state.betThisRound[player.seat];
     const raiseSize = state.currentBet - 0;
     state.lastRaiseSize = raiseSize;
     state.minRaiseTo = state.currentBet + state.lastRaiseSize;
@@ -515,6 +604,7 @@ function applyPlayerAction(
     state.canRaise = state.players.map(
       (p) => p.status === "active" && p.stack > 0
     );
+    markActedAfterAggression(state, player.seat);
     return;
   }
 
@@ -534,10 +624,11 @@ function applyPlayerAction(
     if (raiseTo < minRaiseTo && !isAllIn) {
       throw new Error("Raise below minimum and not all-in.");
     }
-    const raiseAmount = raiseTo - player.streetCommitted;
+    const raiseAmount = raiseTo - state.betThisRound[player.seat];
     player.stack -= raiseAmount;
     player.totalCommitted += raiseAmount;
     player.streetCommitted += raiseAmount;
+    state.betThisRound[player.seat] = raiseTo;
     if (raiseTo >= minRaiseTo) {
       const raiseSize = raiseTo - state.currentBet;
       state.lastRaiseSize = raiseSize;
@@ -553,6 +644,7 @@ function applyPlayerAction(
     if (raiseTo < minRaiseTo || player.stack === 0) {
       state.canRaise[player.seat] = false;
     }
+    markActedAfterAggression(state, player.seat);
     return;
   }
 

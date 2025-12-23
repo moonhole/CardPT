@@ -88,6 +88,8 @@ export type GameState = {
   lastRaiseSize: ChipAmount;
   actionsThisStreet: number;
   canRaise: boolean[];
+  hasActedThisRound: boolean[];
+  betThisRound: ChipAmount[];
 };
 
 export type EventType =
@@ -96,7 +98,8 @@ export type EventType =
   | "action_taken"
   | "street_dealt"
   | "pot_awarded"
-  | "hand_ended";
+  | "hand_ended"
+  | "hand_summary";
 
 export type Event = {
   type: EventType;
