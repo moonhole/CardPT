@@ -131,6 +131,17 @@ function computePots(players: PlayerState[]) {
   return pots;
 }
 
+function refreshPotSnapshot(state: GameState) {
+  const total = state.players.reduce(
+    (sum, player) => sum + player.totalCommitted,
+    0
+  );
+  const eligibleSeats = state.players
+    .filter((player) => player.status !== "folded" && player.status !== "out")
+    .map((player) => player.seat);
+  state.pots = total > 0 ? [{ amount: total, eligibleSeats }] : [];
+}
+
 function distributeOddChips(
   total: number,
   winners: SeatIndex[],
@@ -311,6 +322,8 @@ function ensureHandSetup(
     handId: state.handId,
     data: { seat: state.bigBlindSeat, amount: bbPosted },
   });
+
+  refreshPotSnapshot(state);
 
   let dealSeat = state.smallBlindSeat;
   for (let round = 0; round < 2; round += 1) {
@@ -547,6 +560,7 @@ function applyPlayerAction(
     player.status = "folded";
     state.canRaise[player.seat] = false;
     state.hasActedThisRound[player.seat] = true;
+    refreshPotSnapshot(state);
     return;
   }
 
@@ -556,6 +570,7 @@ function applyPlayerAction(
     }
     state.canRaise[player.seat] = false;
     state.hasActedThisRound[player.seat] = true;
+    refreshPotSnapshot(state);
     return;
   }
 
@@ -571,6 +586,7 @@ function applyPlayerAction(
     }
     state.canRaise[player.seat] = false;
     state.hasActedThisRound[player.seat] = true;
+    refreshPotSnapshot(state);
     return;
   }
 
@@ -605,6 +621,7 @@ function applyPlayerAction(
       (p) => p.status === "active" && p.stack > 0
     );
     markActedAfterAggression(state, player.seat);
+    refreshPotSnapshot(state);
     return;
   }
 
@@ -645,6 +662,7 @@ function applyPlayerAction(
       state.canRaise[player.seat] = false;
     }
     markActedAfterAggression(state, player.seat);
+    refreshPotSnapshot(state);
     return;
   }
 

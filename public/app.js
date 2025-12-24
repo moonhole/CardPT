@@ -157,12 +157,12 @@ async function requestLlmAction(_input) {
 
   const seatInfo = player
     ? {
-        seat: player.seat,
-        stack: player.stack,
-        committed: player.totalCommitted,
-        holeCards: player.holeCards,
-        status: player.status,
-      }
+      seat: player.seat,
+      stack: player.stack,
+      committed: player.totalCommitted,
+      holeCards: player.holeCards,
+      status: player.status,
+    }
     : null;
   const board = state ? state.board : [];
   const potTotal = state
@@ -172,81 +172,60 @@ async function requestLlmAction(_input) {
     ? input.legalActions
     : [];
 
-  const prompt = [
-    profilePrompt,
-    customPrompt ? `Custom prompt:\n${customPrompt}` : "",
-    "Current state:",
-    JSON.stringify(
-      {
-        seat: seatInfo,
-        board,
-        pot: potTotal,
-        legalActions,
-      },
-      null,
-      2
-    ),
-    "Output requirements:",
-    "Respond with STRICT JSON only. No extra text.",
-    'Allowed forms: {"action":"fold"} | {"action":"check"} | {"action":"call"} | {"action":"raise","amount":number}',
-    'Optional "explanation" string is allowed. No other keys.',
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 7000);
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
   try {
+    const mod = await import("/dist/engine/buildDecisionInput.js");
+    const buildDecisionInput = mod.buildDecisionInput;
+    const toCall =
+      state && typeof state.currentBet === "number"
+        ? Math.max(0, state.currentBet - state.betThisRound[state.actionSeat])
+        : 0;
+    const decisionInput = buildDecisionInput({
+      engineFacts: {
+        seed: snapshot ? snapshot.config.seed : null,
+        handId: snapshot ? snapshot.state.handId : null,
+      },
+      profile: {
+        id: profileId,
+        name: profile ? profile.name : "Unknown",
+        description: profile ? profile.description : "",
+        prompt: profilePrompt,
+        custom_prompt: customPrompt,
+      },
+      state: {
+        position: state ? state.actionSeat : null,
+        pot: potTotal,
+        to_call: toCall,
+        legal_actions: legalActions,
+      },
+      legalActions,
+    });
+
     const response = await fetch("/api/llm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify({
-        messages: [
-          { role: "system", content: "You are a poker action selector." },
-          { role: "user", content: prompt },
-        ],
-      }),
+      body: JSON.stringify(decisionInput),
     });
 
     if (!response.ok) {
       throw { type: "llm_error", message: "LLM proxy error." };
     }
 
-    const completion = await response.json();
-
-    const content =
-      completion &&
-      completion.choices &&
-      completion.choices[0] &&
-      completion.choices[0].message &&
-      completion.choices[0].message.content;
-
-    if (typeof content !== "string") {
-      throw { type: "llm_error", message: "Empty LLM response." };
+    const decision = await response.json();
+    if (!decision || !decision.action || !decision.reason) {
+      throw { type: "llm_error", message: "Decision schema mismatch." };
     }
-
-    const trimmed = content.trim();
-    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-      throw { type: "llm_error", message: "Non-JSON LLM response." };
+    const rawType = String(decision.action.type || "").toUpperCase();
+    if (rawType === "FOLD" || rawType === "CALL" || rawType === "RAISE") {
+      decision.action.type = rawType;
+    } else {
+      throw { type: "llm_error", message: "Decision action type invalid." };
     }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (err) {
-      throw { type: "llm_error", message: "JSON parse failure.", cause: err };
-    }
-
-    const allowedKeys = ["action", "amount", "explanation"];
-    for (const key of Object.keys(parsed)) {
-      if (!allowedKeys.includes(key)) {
-        throw { type: "llm_error", message: "Unexpected key in JSON output." };
-      }
-    }
-
-    return parsed;
+    return decision;
   } catch (err) {
+    console.warn("[LLM] requestLlmAction failed", err);
     if (err && err.name === "AbortError") {
       throw { type: "llm_error", message: "LLM request timed out." };
     }
@@ -453,16 +432,15 @@ function render() {
     const promptLabel =
       seatSettings[player.seat].actionMode === "llm"
         ? " | Prompt: " +
-          (seatSettings[player.seat].customPrompt
-            ? "Custom"
-            : getPromptName(
-                seatSettings[player.seat].promptSelection ||
-                  PromptRegistry.defaultPromptId
-              ))
+        (seatSettings[player.seat].customPrompt
+          ? "Custom"
+          : getPromptName(
+            seatSettings[player.seat].promptSelection ||
+            PromptRegistry.defaultPromptId
+          ))
         : "";
-    label.textContent = `${dealerMark}Seat ${player.seat} | ${player.status} | Stack ${
-      player.stack
-    } | Committed ${player.totalCommitted}${promptLabel}`;
+    label.textContent = `${dealerMark}Seat ${player.seat} | ${player.status} | Stack ${player.stack
+      } | Committed ${player.totalCommitted}${promptLabel}`;
     const settingsButton = document.createElement("button");
     settingsButton.className = "settings-btn";
     settingsButton.textContent = "Settings";
@@ -528,26 +506,31 @@ function renderActions() {
         customPrompt: seatSettings[state.actionSeat]?.customPrompt,
       })
         .then((proposal) => {
-          const validation = validateLlmProposal(proposal, legal);
-          if (!validation.ok) {
+          const resolved = resolveLlmDecision(proposal, legal);
+          if (!resolved.ok) {
             llmState = {
               turnKey,
               status: "manual",
               proposal: null,
-              error: validation.error,
+              error: resolved.error,
             };
             render();
             return;
           }
+
           llmState = {
             turnKey,
             status: "proposed",
-            proposal,
+            proposal: {
+              ...proposal,
+              action: resolved.action, // 已保证可执行
+            },
             error: "",
           };
           render();
         })
-        .catch(() => {
+        .catch((err) => {
+          console.warn("[LLM] proposal failed branch", err);
           llmState = {
             turnKey,
             status: "manual",
@@ -579,17 +562,39 @@ function renderActions() {
       title.className = "title";
       title.textContent = "LLM Proposed Action";
       const actionLine = document.createElement("div");
-      const amountPart =
-        llmState.proposal.amount !== undefined
-          ? ` ${llmState.proposal.amount}`
-          : "";
-      actionLine.textContent = `Action: ${llmState.proposal.action}${amountPart}`;
+      const actionType = String(llmState.proposal.action.type || "");
+      const rawAmount = llmState.proposal.action.amount;
+      const displayAction = actionType;
+      const amount =
+        (actionType.toUpperCase() === "RAISE" || actionType.toUpperCase() === "BET") && Number.isFinite(rawAmount) && rawAmount > 0
+          ? rawAmount
+          : null;
+      const amountPart = amount === null ? "" : ` ${amount}`;
+      actionLine.textContent = `AI Action: ${displayAction}${amountPart}`;
       panel.appendChild(title);
       panel.appendChild(actionLine);
-      if (llmState.proposal.explanation) {
-        const explain = document.createElement("div");
-        explain.textContent = `Explanation: ${llmState.proposal.explanation}`;
-        panel.appendChild(explain);
+      const drivers = Array.isArray(llmState.proposal.reason.drivers)
+        ? llmState.proposal.reason.drivers
+        : [];
+      if (drivers.length > 0) {
+        const sorted = [...drivers].sort((a, b) => b.weight - a.weight);
+        const main = sorted[0];
+        const secondary = sorted.slice(1, 3);
+        const mainLine = document.createElement("div");
+        mainLine.textContent = `Main reason: ${getDriverLabel(main.key)}`;
+        panel.appendChild(mainLine);
+        if (secondary.length > 0) {
+          const otherLine = document.createElement("div");
+          otherLine.textContent = `Other factors: ${secondary
+            .map((driver) => getDriverLabel(driver.key))
+            .join(", ")}`;
+          panel.appendChild(otherLine);
+        }
+      }
+      if (llmState.proposal.reason.line) {
+        const line = document.createElement("div");
+        line.textContent = `"${llmState.proposal.reason.line}"`;
+        panel.appendChild(line);
       }
       const controls = document.createElement("div");
       controls.className = "actions";
@@ -598,11 +603,8 @@ function renderActions() {
       confirm.onclick = () => {
         engine.applyAction({
           actor: state.actionSeat,
-          type: llmState.proposal.action,
-          amount:
-            llmState.proposal.amount === undefined
-              ? null
-              : Number(llmState.proposal.amount),
+          type: actionType.toLowerCase(),
+          amount: amount === null ? null : Number(amount),
         });
         llmState = { turnKey: null, status: "idle", proposal: null, error: "" };
         render();
@@ -667,34 +669,156 @@ function renderActions() {
   }
 }
 
-function validateLlmProposal(proposal, legalActions) {
-  if (!proposal || typeof proposal.action !== "string") {
-    return { ok: false, error: "LLM proposal missing action." };
-  }
-  const action = proposal.action.toLowerCase();
-  const legal = legalActions.find((a) => a.type === action);
-  if (!legal) {
-    return { ok: false, error: `Illegal action proposed: ${proposal.action}` };
-  }
-  if (action === "bet" || action === "raise") {
-    const amount = Number(proposal.amount);
-    if (!Number.isFinite(amount)) {
-      return { ok: false, error: "Proposed amount is missing or invalid." };
+function mapProposalAction(proposalAction, legalActions) {
+  const type = String(proposalAction.type || "").toLowerCase();
+
+  if (type === "call") {
+    // free action?
+    if (legalActions.some(a => a.type === "check")) {
+      return { type: "check" };
     }
-    if (legal.minAmount !== null && amount < legal.minAmount) {
+    // must pay?
+    if (legalActions.some(a => a.type === "call")) {
+      return { type: "call", amount: proposalAction.amount };
+    }
+    return null;
+  }
+
+  if (type === "raise") {
+    // first aggression?
+    if (legalActions.some(a => a.type === "bet")) {
+      return { type: "bet", amount: proposalAction.amount };
+    }
+    // raise over bet
+    if (legalActions.some(a => a.type === "raise")) {
+      return { type: "raise", amount: proposalAction.amount };
+    }
+    return null;
+  }
+
+  if (type === "fold") {
+    return { type: "fold" };
+  }
+
+  return null;
+}
+
+
+// function validateLlmProposal(proposal, legalActions) {
+//   if (!proposal || !proposal.action || !proposal.reason) {
+//     console.warn("[LLM VALIDATION] missing decision fields", proposal);
+//     return { ok: false, error: "LLM proposal missing decision fields." };
+//   }
+//   const action = String(proposal.action.type || "").toLowerCase();
+//   if (!action) {
+//     console.warn("[LLM VALIDATION] missing action type", proposal);
+//     return { ok: false, error: "LLM proposal missing action type." };
+//   }
+//   const legal = legalActions.find((a) => a.type === action);
+//   if (!legal) {
+//     console.warn("[LLM VALIDATION] illegal action", { action, legalActions });
+//     return { ok: false, error: `Illegal action proposed: ${action}` };
+//   }
+//   if (action === "bet" || action === "raise") {
+//     const amount = Number(proposal.action.amount);
+//     if (!Number.isFinite(amount)) {
+//       console.warn("[LLM VALIDATION] invalid amount", proposal.action.amount);
+//       return { ok: false, error: "Proposed amount is missing or invalid." };
+//     }
+//     if (legal.minAmount !== null && amount < legal.minAmount) {
+//       console.warn("[LLM VALIDATION] amount below minimum", {
+//         amount,
+//         min: legal.minAmount,
+//       });
+//       return { ok: false, error: "Proposed amount below minimum." };
+//     }
+//     if (legal.maxAmount !== null && amount > legal.maxAmount) {
+//       console.warn("[LLM VALIDATION] amount above maximum", {
+//         amount,
+//         max: legal.maxAmount,
+//       });
+//       return { ok: false, error: "Proposed amount above maximum." };
+//     }
+//   }
+//   return { ok: true };
+// }
+
+function resolveLlmDecision(proposal, legalActions) {
+  // ① 意图合法性
+  const intent = String(proposal?.action?.type || "").toUpperCase();
+  if (!["FOLD", "CALL", "RAISE"].includes(intent)) {
+    return { ok: false, error: `Invalid proposal intent: ${intent}` };
+  }
+
+  // ② 意图 → 执行 映射（可达性）
+  let execAction = null;
+
+  if (intent === "FOLD") {
+    execAction = legalActions.find(a => a.type === "fold") ? { type: "fold" } : null;
+  }
+
+  if (intent === "CALL") {
+    if (legalActions.some(a => a.type === "check")) execAction = { type: "check" };
+    else if (legalActions.some(a => a.type === "call")) execAction = { type: "call" };
+  }
+
+  if (intent === "RAISE") {
+    const amount = Number(proposal.action.amount);
+    if (!Number.isFinite(amount)) {
+      return { ok: false, error: "RAISE requires a valid amount." };
+    }
+    if (legalActions.some(a => a.type === "bet")) execAction = { type: "bet", amount };
+    else if (legalActions.some(a => a.type === "raise")) execAction = { type: "raise", amount };
+  }
+
+  if (!execAction) {
+    return {
+      ok: false,
+      error: `Proposed action '${intent}' cannot be executed in current state.`,
+    };
+  }
+
+  // ③ 数值合法性（min/max）
+  const legal = legalActions.find(a => a.type === execAction.type);
+  if (execAction.amount !== undefined) {
+    if (legal.minAmount !== null && execAction.amount < legal.minAmount) {
       return { ok: false, error: "Proposed amount below minimum." };
     }
-    if (legal.maxAmount !== null && amount > legal.maxAmount) {
+    if (legal.maxAmount !== null && execAction.amount > legal.maxAmount) {
       return { ok: false, error: "Proposed amount above maximum." };
     }
   }
-  return { ok: true };
+
+  // ✅ 一切 OK
+  return {
+    ok: true,
+    action: execAction,
+    amount: proposal.action.amount
+  };
 }
+
 
 function getPromptName(promptId) {
   const profile = PromptRegistry.profiles.find((p) => p.id === promptId);
   return profile ? profile.name : "Unknown";
 }
+
+function getDriverLabel(key) {
+  const map = {
+    hand_strength: "Hand strength",
+    pot_odds: "Pot odds",
+    implied_odds: "Implied odds",
+    position: "Position",
+    risk: "Risk",
+    variance: "Variance",
+    bluff_value: "Bluff potential",
+    entertainment: "Entertainment value",
+    table_image: "Table dynamics",
+    opponent_model: "Opponent behavior",
+  };
+  return map[key] || key;
+}
+
 
 function renderSummary(snapshot) {
   if (hasNewHandStarted(snapshot.events, lastSummaryHandId)) {
@@ -780,9 +904,8 @@ function renderPreGame() {
     const header = document.createElement("div");
     header.className = "seat-header";
     const label = document.createElement("div");
-    label.textContent = `Seat ${seatIndex} | pre-game | Stack ${
-      seatSettings[seatIndex].stack
-    } | Committed 0`;
+    label.textContent = `Seat ${seatIndex} | pre-game | Stack ${seatSettings[seatIndex].stack
+      } | Committed 0`;
     const settingsButton = document.createElement("button");
     settingsButton.className = "settings-btn";
     settingsButton.textContent = "Settings";
