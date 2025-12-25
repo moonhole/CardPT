@@ -34,8 +34,27 @@ let llmState = {
 };
 
 const PromptRegistry = {
-  defaultPromptId: "tight_rookie_v1",
+  defaultPromptId: "balanced_amateur_v1",
   profiles: [
+    {
+      "id": "balanced_amateur_v1",
+      "name": "Balanced Amateur (v1)",
+      "description": "A typical casual player with basic intuition and moderate risk tolerance.",
+      "prompt": `You are a casual poker player with some experience.
+      
+You are not reckless, but you are willing to bet or raise when it feels reasonable.
+You sometimes check or call to control the pot, but you are not afraid to apply pressure.
+
+You do not calculate odds precisely, but you have a basic sense of hand strength and position.
+You may make imperfect decisions.
+You are not trying to play optimally—just plausibly.
+
+Avoid extreme passivity.
+Avoid extreme aggression.
+Play in a way that feels human and varied.
+`
+    },
+
     {
       id: "tight_rookie_v1",
       name: "Tight Rookie (v1)",
@@ -107,37 +126,37 @@ over aggressive domination.
 const seatSettings = [
   {
     stack: 200,
-    actionMode: "manual",
+    actionMode: "llm",
     promptSelection: PromptRegistry.defaultPromptId,
     customPrompt: "",
   },
   {
     stack: 200,
-    actionMode: "manual",
+    actionMode: "llm",
     promptSelection: PromptRegistry.defaultPromptId,
     customPrompt: "",
   },
   {
     stack: 200,
-    actionMode: "manual",
+    actionMode: "llm",
     promptSelection: PromptRegistry.defaultPromptId,
     customPrompt: "",
   },
   {
     stack: 200,
-    actionMode: "manual",
+    actionMode: "llm",
     promptSelection: PromptRegistry.defaultPromptId,
     customPrompt: "",
   },
   {
     stack: 200,
-    actionMode: "manual",
+    actionMode: "llm",
     promptSelection: PromptRegistry.defaultPromptId,
     customPrompt: "",
   },
   {
     stack: 200,
-    actionMode: "manual",
+    actionMode: "llm",
     promptSelection: PromptRegistry.defaultPromptId,
     customPrompt: "",
   },
@@ -272,6 +291,7 @@ function renderCards(container, cards) {
 
 function renderHoleCards(container, cards) {
   const holder = document.createElement("div");
+  holder.className = "hole-cards";
   for (const card of cards) {
     const view = cardToView(`${card.rank}${card.suit}`);
     const el = document.createElement("span");
@@ -352,6 +372,14 @@ settingsSave.addEventListener("click", () => {
     customPrompt: settingsCustomPrompt.value || "",
   };
   closeSettings();
+  // Controller mode and profile changes take effect immediately - update UI right away
+  // Stack changes during a hand will apply next hand (handled in render)
+  if (gameStarted && engine) {
+    render();
+  } else {
+    // Pre-game: update UI immediately to show profile selection
+    renderPreGame();
+  }
 });
 
 settingsMode.addEventListener("change", () => {
@@ -364,14 +392,8 @@ settingsCustomPrompt.addEventListener("input", updatePromptNote);
 
 function renderPromptProfileOptions() {
   settingsPromptProfile.innerHTML = "";
-  const defaultOption = document.createElement("option");
-  defaultOption.value = PromptRegistry.defaultPromptId;
-  defaultOption.textContent = "Use Default";
-  settingsPromptProfile.appendChild(defaultOption);
+  // Show all profiles including the default - display concrete names, not "Use Default"
   for (const profile of PromptRegistry.profiles) {
-    if (profile.id === PromptRegistry.defaultPromptId) {
-      continue;
-    }
     const option = document.createElement("option");
     option.value = profile.id;
     option.textContent = profile.name;
@@ -425,30 +447,108 @@ function render() {
     if (player.seat === state.actionSeat && state.phase !== "ended") {
       seat.style.borderColor = "#6fb3ff";
     }
-    const dealerMark = player.seat === state.dealerSeat ? "\u25CF " : "";
     const header = document.createElement("div");
     header.className = "seat-header";
-    const label = document.createElement("div");
-    const promptLabel =
-      seatSettings[player.seat].actionMode === "llm"
-        ? " | Prompt: " +
-        (seatSettings[player.seat].customPrompt
-          ? "Custom"
-          : getPromptName(
-            seatSettings[player.seat].promptSelection ||
-            PromptRegistry.defaultPromptId
-          ))
-        : "";
-    label.textContent = `${dealerMark}Seat ${player.seat} | ${player.status} | Stack ${player.stack
-      } | Committed ${player.totalCommitted}${promptLabel}`;
+    const seatInfo = document.createElement("div");
+    seatInfo.className = "seat-info";
+
+    // Seat number and state badges (max 2)
+    const badgeRow = document.createElement("div");
+    badgeRow.className = "badge-row";
+    const seatLabel = document.createElement("span");
+    seatLabel.style.fontSize = "11px";
+    seatLabel.style.fontWeight = "600";
+    seatLabel.style.color = "#d4e4f0";
+    seatLabel.textContent = `Seat ${player.seat}`;
+    badgeRow.appendChild(seatLabel);
+    if (player.seat === state.dealerSeat) {
+      const dealerBadge = document.createElement("span");
+      dealerBadge.className = "badge dealer";
+      dealerBadge.textContent = "Dealer";
+      badgeRow.appendChild(dealerBadge);
+    }
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `badge status-${player.status}`;
+    statusBadge.textContent = player.status;
+    badgeRow.appendChild(statusBadge);
+    seatInfo.appendChild(badgeRow);
+
+    // Numeric fields as aligned text rows
+    const stackRow = document.createElement("div");
+    stackRow.className = "info-row";
+    const stackLabel = document.createElement("span");
+    stackLabel.className = "info-label";
+    stackLabel.textContent = "Stack";
+    const stackValue = document.createElement("span");
+    stackValue.className = "info-value";
+    stackValue.textContent = String(player.stack);
+    stackRow.appendChild(stackLabel);
+    stackRow.appendChild(stackValue);
+    seatInfo.appendChild(stackRow);
+
+    const committedRow = document.createElement("div");
+    committedRow.className = "info-row";
+    const committedLabel = document.createElement("span");
+    committedLabel.className = "info-label";
+    committedLabel.textContent = "Committed";
+    const committedValue = document.createElement("span");
+    committedValue.className = "info-value";
+    committedValue.textContent = String(player.totalCommitted);
+    committedRow.appendChild(committedLabel);
+    committedRow.appendChild(committedValue);
+    seatInfo.appendChild(committedRow);
+
+    // Prompt info (if LLM) - as text row
+    if (seatSettings[player.seat].actionMode === "llm") {
+      const promptRow = document.createElement("div");
+      promptRow.className = "info-row";
+      const promptLabel = document.createElement("span");
+      promptLabel.className = "info-label";
+      promptLabel.textContent = "Prompt";
+      const promptValue = document.createElement("span");
+      promptValue.className = "info-value";
+      promptValue.style.fontSize = "10px";
+      promptValue.textContent = seatSettings[player.seat].customPrompt
+        ? "Custom"
+        : getPromptName(
+          seatSettings[player.seat].promptSelection ||
+          PromptRegistry.defaultPromptId
+        );
+      promptRow.appendChild(promptLabel);
+      promptRow.appendChild(promptValue);
+      seatInfo.appendChild(promptRow);
+    }
+
+    // Pending stack change - as text row
+    const pendingStackChange = seatSettings[player.seat].stack !== config.startingStacks[player.seat];
+    if (pendingStackChange) {
+      const pendingRow = document.createElement("div");
+      pendingRow.className = "info-row";
+      const pendingLabel = document.createElement("span");
+      pendingLabel.className = "info-label";
+      pendingLabel.style.fontStyle = "italic";
+      pendingLabel.textContent = "Next hand";
+      const pendingValue = document.createElement("span");
+      pendingValue.className = "info-value";
+      pendingValue.style.fontStyle = "italic";
+      pendingValue.textContent = String(seatSettings[player.seat].stack);
+      pendingRow.appendChild(pendingLabel);
+      pendingRow.appendChild(pendingValue);
+      seatInfo.appendChild(pendingRow);
+    }
+
     const settingsButton = document.createElement("button");
     settingsButton.className = "settings-btn";
-    settingsButton.textContent = "Settings";
+    settingsButton.textContent = "🔧";
     settingsButton.onclick = () => openSettings(player.seat);
-    header.appendChild(label);
+    header.appendChild(seatInfo);
     header.appendChild(settingsButton);
     seat.appendChild(header);
-    renderHoleCards(seat, player.holeCards);
+    // Reserved card area - always exists to maintain stable seat card height
+    const cardArea = document.createElement("div");
+    cardArea.className = "card-area";
+    seat.appendChild(cardArea);
+    renderHoleCards(cardArea, player.holeCards);
     seatsEl.appendChild(seat);
   }
 
@@ -546,10 +646,16 @@ function renderActions() {
       panel.className = "llm-panel";
       const title = document.createElement("div");
       title.className = "title";
-      title.textContent = "LLM Proposed Action";
+      title.textContent = "AI Decision";
+      title.style.marginBottom = "8px";
+      title.style.fontSize = "13px";
+      title.style.color = "#9fb0ba";
+      panel.appendChild(title);
       const body = document.createElement("div");
       body.textContent = "Awaiting proposal...";
-      panel.appendChild(title);
+      body.style.fontSize = "12px";
+      body.style.color = "#9fb0ba";
+      body.style.fontStyle = "italic";
       panel.appendChild(body);
       actionsEl.appendChild(panel);
       return;
@@ -558,49 +664,106 @@ function renderActions() {
     if (llmState.status === "proposed") {
       const panel = document.createElement("div");
       panel.className = "llm-panel";
+
+      // Title: "AI Decision" - secondary header
       const title = document.createElement("div");
       title.className = "title";
-      title.textContent = "LLM Proposed Action";
-      const actionLine = document.createElement("div");
+      title.textContent = "AI Decision";
+      title.style.marginBottom = "10px";
+      title.style.fontSize = "13px";
+      title.style.color = "#9fb0ba";
+      panel.appendChild(title);
+
+      // Action-first hierarchy: Most prominent element
+      const actionDisplay = document.createElement("div");
+      actionDisplay.style.fontSize = "28px";
+      actionDisplay.style.fontWeight = "700";
+      actionDisplay.style.marginBottom = "16px";
+      actionDisplay.style.letterSpacing = "0.5px";
       const actionType = String(llmState.proposal.action.type || "");
       const rawAmount = llmState.proposal.action.amount;
-      const displayAction = actionType;
       const amount =
         (actionType.toUpperCase() === "RAISE" || actionType.toUpperCase() === "BET") && Number.isFinite(rawAmount) && rawAmount > 0
           ? rawAmount
           : null;
       const amountPart = amount === null ? "" : ` ${amount}`;
-      actionLine.textContent = `AI Action: ${displayAction}${amountPart}`;
-      panel.appendChild(title);
-      panel.appendChild(actionLine);
+      // Semantic color: RAISE/BET more intense, FOLD subdued
+      if (actionType.toUpperCase() === "RAISE" || actionType.toUpperCase() === "BET") {
+        actionDisplay.style.color = "#e6eef3";
+      } else if (actionType.toUpperCase() === "FOLD") {
+        actionDisplay.style.color = "#9fb0ba";
+      } else {
+        actionDisplay.style.color = "#d4e4f0";
+      }
+      actionDisplay.textContent = actionType.toUpperCase() + amountPart;
+      panel.appendChild(actionDisplay);
+
+      // Why? section: Short judgment sentences from drivers
+      const whySection = document.createElement("div");
+      whySection.style.marginBottom = "14px";
+      const whyTitle = document.createElement("div");
+      whyTitle.style.fontWeight = "600";
+      whyTitle.style.marginBottom = "8px";
+      whyTitle.style.fontSize = "13px";
+      whyTitle.style.color = "#d4e4f0";
+      whyTitle.textContent = "Why?";
+      whySection.appendChild(whyTitle);
+
       const drivers = Array.isArray(llmState.proposal.reason.drivers)
         ? llmState.proposal.reason.drivers
         : [];
       if (drivers.length > 0) {
         const sorted = [...drivers].sort((a, b) => b.weight - a.weight);
-        const main = sorted[0];
-        const secondary = sorted.slice(1, 3);
-        const mainLine = document.createElement("div");
-        mainLine.textContent = `Main reason: ${getDriverLabel(main.key)}`;
-        panel.appendChild(mainLine);
-        if (secondary.length > 0) {
-          const otherLine = document.createElement("div");
-          otherLine.textContent = `Other factors: ${secondary
-            .map((driver) => getDriverLabel(driver.key))
-            .join(", ")}`;
-          panel.appendChild(otherLine);
+        // Convert top drivers to short judgment sentences
+        const topDrivers = sorted.slice(0, 3);
+        const reasonsList = document.createElement("div");
+        reasonsList.style.paddingLeft = "0";
+        reasonsList.style.lineHeight = "1.5";
+        for (const driver of topDrivers) {
+          const reasonItem = document.createElement("div");
+          reasonItem.style.marginBottom = "5px";
+          reasonItem.style.fontSize = "12px";
+          reasonItem.style.color = "#c4d4e0";
+          reasonItem.textContent = `• ${formatDriverAsJudgment(driver.key)}`;
+          reasonsList.appendChild(reasonItem);
         }
+        whySection.appendChild(reasonsList);
       }
+      panel.appendChild(whySection);
+
+      // AI Thought: Optional, visually secondary
       if (llmState.proposal.reason.line) {
-        const line = document.createElement("div");
-        line.textContent = `"${llmState.proposal.reason.line}"`;
-        panel.appendChild(line);
+        const thoughtSection = document.createElement("div");
+        thoughtSection.style.marginTop = "14px";
+        thoughtSection.style.marginBottom = "14px";
+        thoughtSection.style.paddingTop = "12px";
+        thoughtSection.style.borderTop = "1px solid #1f2a33";
+        const thoughtLabel = document.createElement("div");
+        thoughtLabel.style.fontWeight = "500";
+        thoughtLabel.style.marginBottom = "6px";
+        thoughtLabel.style.fontSize = "11px";
+        thoughtLabel.style.color = "#7a8a94";
+        thoughtLabel.style.textTransform = "uppercase";
+        thoughtLabel.style.letterSpacing = "0.5px";
+        thoughtLabel.textContent = "AI Thought";
+        thoughtSection.appendChild(thoughtLabel);
+        const thoughtText = document.createElement("div");
+        thoughtText.style.fontSize = "12px";
+        thoughtText.style.fontStyle = "italic";
+        thoughtText.style.color = "#9fb0ba";
+        thoughtText.style.lineHeight = "1.4";
+        thoughtText.textContent = `"${llmState.proposal.reason.line}"`;
+        thoughtSection.appendChild(thoughtText);
+        panel.appendChild(thoughtSection);
       }
+
+      // Player-centric buttons - unified styling
       const controls = document.createElement("div");
       controls.className = "actions";
-      const confirm = document.createElement("button");
-      confirm.textContent = "Confirm / Apply";
-      confirm.onclick = () => {
+      const followButton = document.createElement("button");
+      followButton.textContent = "Follow AI";
+      followButton.style.fontWeight = "600";
+      followButton.onclick = () => {
         engine.applyAction({
           actor: state.actionSeat,
           type: actionType.toLowerCase(),
@@ -609,9 +772,11 @@ function renderActions() {
         llmState = { turnKey: null, status: "idle", proposal: null, error: "" };
         render();
       };
-      const cancel = document.createElement("button");
-      cancel.textContent = "Cancel";
-      cancel.onclick = () => {
+      const controlButton = document.createElement("button");
+      controlButton.textContent = "Take control";
+      controlButton.style.fontWeight = "500";
+      controlButton.style.opacity = "0.85";
+      controlButton.onclick = () => {
         llmState = {
           turnKey,
           status: "manual",
@@ -620,8 +785,8 @@ function renderActions() {
         };
         render();
       };
-      controls.appendChild(confirm);
-      controls.appendChild(cancel);
+      controls.appendChild(followButton);
+      controls.appendChild(controlButton);
       panel.appendChild(controls);
       actionsEl.appendChild(panel);
       return;
@@ -632,11 +797,16 @@ function renderActions() {
       panel.className = "llm-panel";
       const title = document.createElement("div");
       title.className = "title";
-      title.textContent = "LLM Proposed Action";
+      title.textContent = "AI Decision";
+      title.style.marginBottom = "8px";
+      title.style.fontSize = "13px";
+      title.style.color = "#9fb0ba";
+      panel.appendChild(title);
       const error = document.createElement("div");
       error.className = "error";
+      error.style.fontSize = "12px";
+      error.style.lineHeight = "1.4";
       error.textContent = llmState.error || "Invalid proposal.";
-      panel.appendChild(title);
       panel.appendChild(error);
       actionsEl.appendChild(panel);
     }
@@ -819,6 +989,23 @@ function getDriverLabel(key) {
   return map[key] || key;
 }
 
+// Convert driver keys to short, human-readable judgment sentences
+function formatDriverAsJudgment(key) {
+  const judgments = {
+    hand_strength: "Decent hand strength",
+    pot_odds: "Pot odds justify continuing",
+    implied_odds: "Implied odds favor this play",
+    position: "Positional advantage",
+    risk: "Low risk at current stack depth",
+    variance: "Acceptable variance",
+    bluff_value: "Bluff potential exists",
+    entertainment: "Entertainment value",
+    table_image: "Table dynamics favor this",
+    opponent_model: "Opponent behavior suggests this",
+  };
+  return judgments[key] || getDriverLabel(key);
+}
+
 
 function renderSummary(snapshot) {
   if (hasNewHandStarted(snapshot.events, lastSummaryHandId)) {
@@ -903,16 +1090,81 @@ function renderPreGame() {
     seat.className = seatClasses[seatIndex] || "seat";
     const header = document.createElement("div");
     header.className = "seat-header";
-    const label = document.createElement("div");
-    label.textContent = `Seat ${seatIndex} | pre-game | Stack ${seatSettings[seatIndex].stack
-      } | Committed 0`;
+    const seatInfo = document.createElement("div");
+    seatInfo.className = "seat-info";
+
+    // Seat number and state badges (max 2)
+    const badgeRow = document.createElement("div");
+    badgeRow.className = "badge-row";
+    const seatLabel = document.createElement("span");
+    seatLabel.style.fontSize = "11px";
+    seatLabel.style.fontWeight = "600";
+    seatLabel.style.color = "#d4e4f0";
+    seatLabel.textContent = `Seat ${seatIndex}`;
+    badgeRow.appendChild(seatLabel);
+    const preGameBadge = document.createElement("span");
+    preGameBadge.className = "badge pending";
+    preGameBadge.textContent = "pre-game";
+    badgeRow.appendChild(preGameBadge);
+    seatInfo.appendChild(badgeRow);
+
+    // Numeric fields as aligned text rows
+    const stackRow = document.createElement("div");
+    stackRow.className = "info-row";
+    const stackLabel = document.createElement("span");
+    stackLabel.className = "info-label";
+    stackLabel.textContent = "Stack";
+    const stackValue = document.createElement("span");
+    stackValue.className = "info-value";
+    stackValue.textContent = String(seatSettings[seatIndex].stack);
+    stackRow.appendChild(stackLabel);
+    stackRow.appendChild(stackValue);
+    seatInfo.appendChild(stackRow);
+
+    const committedRow = document.createElement("div");
+    committedRow.className = "info-row";
+    const committedLabel = document.createElement("span");
+    committedLabel.className = "info-label";
+    committedLabel.textContent = "Committed";
+    const committedValue = document.createElement("span");
+    committedValue.className = "info-value";
+    committedValue.textContent = "0";
+    committedRow.appendChild(committedLabel);
+    committedRow.appendChild(committedValue);
+    seatInfo.appendChild(committedRow);
+
+    // Prompt info (if LLM) - as text row
+    if (seatSettings[seatIndex].actionMode === "llm") {
+      const promptRow = document.createElement("div");
+      promptRow.className = "info-row";
+      const promptLabel = document.createElement("span");
+      promptLabel.className = "info-label";
+      promptLabel.textContent = "Prompt";
+      const promptValue = document.createElement("span");
+      promptValue.className = "info-value";
+      promptValue.style.fontSize = "10px";
+      promptValue.textContent = seatSettings[seatIndex].customPrompt
+        ? "Custom"
+        : getPromptName(
+          seatSettings[seatIndex].promptSelection ||
+          PromptRegistry.defaultPromptId
+        );
+      promptRow.appendChild(promptLabel);
+      promptRow.appendChild(promptValue);
+      seatInfo.appendChild(promptRow);
+    }
+
     const settingsButton = document.createElement("button");
     settingsButton.className = "settings-btn";
-    settingsButton.textContent = "Settings";
+    settingsButton.textContent = "🔧";
     settingsButton.onclick = () => openSettings(seatIndex);
-    header.appendChild(label);
+    header.appendChild(seatInfo);
     header.appendChild(settingsButton);
     seat.appendChild(header);
+    // Reserved card area - always exists to maintain stable seat card height
+    const cardArea = document.createElement("div");
+    cardArea.className = "card-area";
+    seat.appendChild(cardArea);
     seatsEl.appendChild(seat);
   }
 

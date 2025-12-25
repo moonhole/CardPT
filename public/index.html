@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CardPT v0.1</title>
+    <title>CardPT v0.3</title>
     <style>
       :root {
         color-scheme: dark;
@@ -71,6 +71,19 @@
         width: 28px;
         height: 38px;
         font-size: 12px;
+        margin: 0;
+      }
+      .seat .card-area {
+        min-height: var(--seat-card-area-height);
+        height: var(--seat-card-area-height);
+        margin-top: var(--seat-section-gap);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .hole-cards {
+        display: flex;
+        gap: var(--seat-card-gap);
       }
       .card.red {
         color: #c93b3b;
@@ -114,7 +127,7 @@
       }
       .llm-panel {
         margin-top: 8px;
-        padding: 8px;
+        padding: 14px;
         border: 1px solid #2f3a45;
         border-radius: 8px;
         background: #10161b;
@@ -134,7 +147,7 @@
         display: flex;
         gap: 8px;
         justify-content: flex-start;
-        margin-top: 8px;
+        margin-top: 12px;
       }
       .seats {
         position: relative;
@@ -149,32 +162,36 @@
         padding: 8px;
         background: #0c1512;
         font-size: 12px;
+        /* Tunable layout variables - adjust these to fine-tune spacing */
+        --seat-card-area-height: 52px;
+        --seat-card-gap: 4px;
+        --seat-section-gap: 8px;
       }
       .seat.top-left {
         top: 24px;
-        left: 60px;
+        left: 50px; /* Shift outward slightly for balance */
       }
       .seat.top-right {
         top: 24px;
-        right: 60px;
+        right: 50px; /* Shift outward slightly for balance */
       }
       .seat.left {
-        top: 50%;
+        top: 50%; /* Keep centered to maximize vertical clearance */
         left: 12px;
         transform: translateY(-50%);
       }
       .seat.right {
-        top: 50%;
+        top: 50%; /* Keep centered to maximize vertical clearance */
         right: 12px;
         transform: translateY(-50%);
       }
       .seat.bottom-left {
-        bottom: 80px;
-        left: 90px;
+        bottom: 24px; /* Push down to prevent overlap with side seats */
+        left: 50px; /* Push outward for symmetry with top */
       }
       .seat.bottom-right {
-        bottom: 80px;
-        right: 90px;
+        bottom: 24px; /* Push down to prevent overlap with side seats */
+        right: 50px; /* Push outward for symmetry with top */
       }
       .seat .seat-header {
         display: flex;
@@ -183,8 +200,86 @@
         gap: 6px;
       }
       .seat .settings-btn {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        font-size: 12px;
+        padding: 4px;
+        min-width: auto;
+        background: transparent;
+        border: none;
+        opacity: 0.6;
+        cursor: pointer;
+      }
+      .seat .settings-btn:hover {
+        opacity: 1;
+      }
+      .seat .seat-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-right: 24px;
+      }
+      .seat .badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .seat .info-row {
+        display: flex;
+        justify-content: space-between;
         font-size: 11px;
+        line-height: 1.4;
+      }
+      .seat .info-label {
+        color: #9fb0ba;
+      }
+      .seat .info-value {
+        color: #d4e4f0;
+        font-weight: 500;
+        text-align: right;
+      }
+      .seat .badge {
+        display: inline-block;
         padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        background: #151f1c;
+        border: 1px solid #223b31;
+        color: #d4e4f0;
+      }
+      .seat .badge.dealer {
+        background: #1a2f26;
+        border-color: #2a4a3a;
+        color: #6fb3ff;
+      }
+      .seat .badge.llm {
+        background: #1a1f26;
+        border-color: #2a3545;
+        color: #9fb0ba;
+      }
+      .seat .badge.manual {
+        background: #1a1f1a;
+        border-color: #2a3a2a;
+        color: #9fb0ba;
+      }
+      .seat .badge.status-active {
+        color: #6fb3ff;
+      }
+      .seat .badge.status-folded {
+        color: #9fb0ba;
+      }
+      .seat .badge.status-all_in {
+        color: #e6a872;
+      }
+      .seat .badge.pending {
+        background: #1a1f1a;
+        border-color: #3a4a3a;
+        color: #9fb0ba;
+        font-style: italic;
       }
       button {
         background: #121a1a;
@@ -255,7 +350,7 @@
     </style>
   </head>
   <body>
-    <h1>CardPT v0.1</h1>
+    <h1>CardPT v0.3</h1>
     <div class="layout">
       <div class="table-wrap">
         <div class="table">

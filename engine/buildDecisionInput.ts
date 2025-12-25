@@ -54,13 +54,13 @@ export function buildDecisionInput(params: BuildDecisionInputParams) {
         assumptions: "object with free-form notes",
         line: "short in-character sentence",
         constraints: {
-          FOLD: "hand_strength should not be the main reason",
+          FOLD: "Avoid folding solely due to hand strength if other factors are neutral",
           RAISE: "risk should not be the main reason",
         },
       },
       confidence: "number",
     }
-    
+
     // output_schema: {
     //   action: {
     //     type: "ENUM: exactly one of [FOLD, CALL, RAISE]",
@@ -77,7 +77,7 @@ export function buildDecisionInput(params: BuildDecisionInputParams) {
     //     plan: "see_turn | control_pot | apply_pressure",
     //     assumptions: { string: "string" },
     //     line: "short in-character sentence",
-    
+
     //     constraints: {
     //       FOLD: "hand_strength must NOT be the highest-weight driver",
     //       RAISE: "risk must NOT be the highest-weight driver",

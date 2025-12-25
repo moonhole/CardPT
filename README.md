@@ -1,64 +1,115 @@
-# CardPT v0.1
+# CardPT v0.3
 
-Deterministic, offline, single-table Texas Hold'em rule engine with a minimal UI and LLM-proposed actions gated by human confirmation.
+An experimental, offline, single-player Texas Hold'em sandbox for observing LLM decision behavior.
 
-## Scope
-- No-Limit Texas Hold'em, 6 seats only.
-- Seats can be human-controlled or LLM-assisted (proposal only).
-- LLM output is always validated and never auto-applied.
-- Engine is authoritative; UI is display + action submission only.
-- Non-goals: autonomous agents, self-play, EV optimization.
+## What CardPT Is
 
-## Structure
-- `engine/` deterministic rules, state, and evaluation.
-- `public/` sandbox UI (browser-only).
-- `server.js` Node server (static file host + LLM proxy).
-- `shared/` (reserved; unused in v0.1).
+CardPT is a deterministic poker rule engine with a UI that allows you to:
+- Configure multiple seats with different LLM personas (prompts)
+- Run hands where LLMs propose actions for their assigned seats
+- Observe how different prompts lead to different decision patterns
+- Manually override any LLM proposal before it's applied
+
+The engine enforces correct poker rules. The LLMs propose actions. You observe the behavior.
+
+## What CardPT Is Not
+
+CardPT is **not**:
+- A poker solver or EV optimizer
+- A competitive AI poker player
+- A training system for improving play
+- An autonomous agent framework
+- A tool for finding optimal strategies
+
+CardPT does not evaluate whether LLM decisions are "correct" or "strong." It provides a controlled environment to see what decisions different prompts produce under the same game conditions.
+
+## Scope (v0.3)
+
+**Game rules:**
+- No-Limit Texas Hold'em, 6 seats
+- Deterministic RNG (seed-based)
+- Side pots and odd chip distribution handled correctly
+
+**LLM integration:**
+- LLMs propose actions (fold, check, call, bet, raise)
+- All proposals require human confirmation
+- Invalid proposals are rejected; manual input is available
+- No auto-application of LLM decisions
+
+**UI:**
+- Seat configuration (controller mode, stack, prompt profile)
+- Real-time hand visualization
+- LLM proposal display with reasoning
+- Manual action controls
+
+**Intentional limitations:**
+- Single table only
+- No multi-hand statistics or analysis
+- No learning or adaptation
+- No comparison to optimal play
+- No autonomous play mode
 
 ## Architecture
-- Engine: deterministic rules and state transitions. No UI, no LLM.
-- UI: renders state and submits actions. Never patches rules.
-- Server: serves static UI and proxies `/api/llm` requests to Bailian.
 
-## LLM Integration (v0.1)
-- LLM is an untrusted proposal generator.
-- Flow: propose → validate → human confirm → apply.
-- Invalid proposals are rejected and fall back to manual input.
+**Engine** (`engine/`):
+- TypeScript implementation of poker rules
+- Deterministic state transitions
+- No UI dependencies, no LLM dependencies
+
+**UI** (`public/`):
+- Browser-based sandbox interface
+- Renders engine state
+- Submits actions to engine
+- Never modifies engine rules
+
+**Server** (`server.js`):
+- Static file hosting
+- LLM API proxy (`/api/llm`)
 
 ## Build
-This repo uses TypeScript for the engine and plain HTML/JS for the UI.
 
 ```sh
 tsc
 ```
 
-Build output goes to `dist/engine/index.js`.
+Build output: `dist/engine/index.js`
 
 ## Run
-Install dependencies, set the API key, and start the Node server:
 
+Install dependencies and set API key:
+
+**Windows (Command Prompt):**
 ```sh
 npm install
 set DASHSCOPE_API_KEY=your_key_here
 npm run dev
 ```
 
+**Windows (PowerShell):**
 ```powershell
 npm install
 $env:DASHSCOPE_API_KEY="your_key_here"
 npm run dev
 ```
 
-Then open:
+**macOS / Linux:**
+```sh
+npm install
+export DASHSCOPE_API_KEY=your_key_here
+npm run dev
 ```
-http://localhost:8000/
-```
+
+Open: `http://localhost:8000/`
 
 ## Determinism
-- RNG is seeded from `config.seed` and `handId`.
-- Same seed + same action list => same result.
 
-## Notes
-- Betting actions are `fold`, `check`, `call`, `bet`, `raise`.
-- All-in is represented by a bet/raise/call that uses the player's full stack.
-- Side pots and odd chip distribution are handled by the engine.
+- RNG seeded from `config.seed` and `handId`
+- Same seed + same action sequence = identical result
+- Enables reproducible observation of LLM behavior under controlled conditions
+
+## Technical Notes
+
+- Betting actions: `fold`, `check`, `call`, `bet`, `raise`
+- All-in handled automatically when stack is exhausted
+- Engine is authoritative; UI is display-only
+- LLM proposals are validated before application
