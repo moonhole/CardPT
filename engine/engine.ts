@@ -46,6 +46,23 @@ function firstActiveFrom(
   return null;
 }
 
+// Find the next eligible player for blinds (status == active && stack > 0)
+// Blind rotation is anchored on Big Blind to preserve forced-bet invariants
+function findNextEligibleSeat(
+  state: GameState,
+  start: SeatIndex
+): SeatIndex | null {
+  let seat = start;
+  for (let i = 0; i < 6; i += 1) {
+    const player = state.players[seat];
+    if (player.status === "active" && player.stack > 0) {
+      return seat;
+    }
+    seat = nextSeat(seat);
+  }
+  return null;
+}
+
 function resetStreet(state: GameState, config: GameConfig) {
   for (const player of state.players) {
     player.streetCommitted = 0;
@@ -69,6 +86,10 @@ function postBlind(
   amount: number
 ): number {
   const player = state.players[seat];
+  // Players with zero stack cannot participate in a hand - do not mark as all_in
+  if (player.status === "out") {
+    return 0;
+  }
   const posted = Math.min(player.stack, amount);
   player.stack -= posted;
   player.totalCommitted += posted;
@@ -165,8 +186,32 @@ function distributeOddChips(
   return payouts;
 }
 
+// Pots with identical eligible players are semantically equivalent and merged for correctness.
+function normalizePotsByEligibility(
+  pots: ReturnType<typeof computePots>
+): ReturnType<typeof computePots> {
+  const merged = new Map<string, { amount: number; eligibleSeats: SeatIndex[] }>();
+  
+  for (const pot of pots) {
+    // Create deterministic key from sorted eligible seat IDs
+    const key = [...pot.eligibleSeats].sort((a, b) => a - b).join(",");
+    
+    if (merged.has(key)) {
+      const existing = merged.get(key)!;
+      existing.amount += pot.amount;
+    } else {
+      merged.set(key, {
+        amount: pot.amount,
+        eligibleSeats: pot.eligibleSeats,
+      });
+    }
+  }
+  
+  return Array.from(merged.values());
+}
+
 function resolveShowdown(state: GameState) {
-  const pots = computePots(state.players);
+  const pots = normalizePotsByEligibility(computePots(state.players));
   const results: {
     potIndex: number;
     payouts: Record<SeatIndex, number>;
@@ -281,9 +326,36 @@ function ensureHandSetup(
     }
   }
 
+  // Blind rotation is anchored on Big Blind to preserve forced-bet invariants
+  // Previous BB seat is immutable anchor (even if that player is now ineligible)
+  const anchor = state.bigBlindSeat;
+  // Start scanning AT the anchor (previous BB) so the Old BB becomes the New SB (Moving Button rule)
+  // This prevents over-rotation where SB skips the Old BB seat
+  const startSeat = anchor;
+  
+  // Single-pass scan: collect eligible players starting from anchor
+  const eligibleSeats: SeatIndex[] = [];
+  let seat = startSeat;
+  for (let i = 0; i < 6; i += 1) {
+    const player = state.players[seat];
+    if (player.status === "active" && player.stack > 0) {
+      eligibleSeats.push(seat);
+      if (eligibleSeats.length >= 2) {
+        break; // Only need first two eligible players
+      }
+    }
+    seat = nextSeat(seat);
+  }
+  
+  if (eligibleSeats.length < 2) {
+    throw new Error("Cannot start hand: fewer than two eligible players.");
+  }
+  
+  // Assign: first eligible → SB, second eligible → BB
+  state.smallBlindSeat = eligibleSeats[0];
+  state.bigBlindSeat = eligibleSeats[1];
+  // Button rotates linearly (simplified, not used for blind assignment)
   state.dealerSeat = ((state.dealerSeat + 1) % 6) as SeatIndex;
-  state.smallBlindSeat = nextSeat(state.dealerSeat);
-  state.bigBlindSeat = nextSeat(state.smallBlindSeat);
   state.phase = "preflop";
   resetStreet(state, config);
 
@@ -297,6 +369,7 @@ function ensureHandSetup(
     },
   });
 
+  // SB and BB are guaranteed to be eligible players (validated above)
   const sbPosted = postBlind(state, state.smallBlindSeat, config.smallBlind);
   const bbPosted = postBlind(state, state.bigBlindSeat, config.bigBlind);
   state.currentBet = bbPosted;
@@ -449,6 +522,26 @@ function resolveHandEnd(
   });
 }
 
+// Count players who can still act (not folded, not all-in, have stack > 0)
+function countPlayersWhoCanAct(state: GameState): number {
+  return state.players.filter(
+    (p) => p.status === "active" && p.stack > 0
+  ).length;
+}
+
+// Auto-runout applies only when no player can still act (standard poker rule: no betting possible once all players are all-in)
+function shouldAutoRunout(state: GameState): boolean {
+  const stillInHand = state.players.filter(
+    (p) => p.status !== "folded" && p.status !== "out"
+  );
+  if (stillInHand.length < 2) {
+    return false; // Hand already resolved or uncontested
+  }
+  // Only allow auto-runout when no players can act
+  const canActCount = countPlayersWhoCanAct(state);
+  return canActCount === 0;
+}
+
 function advanceAfterAction(
   state: GameState,
   config: GameConfig,
@@ -461,6 +554,44 @@ function advanceAfterAction(
   }
 
   if (state.phase === "showdown") {
+    resolveHandEnd(state, events);
+    return;
+  }
+
+  // Auto-advance to showdown when no players can act (all-in shortcut applies only when no player can still act)
+  // Standard poker rule: no betting possible once all players are all-in
+  if (shouldAutoRunout(state)) {
+    // Deal remaining community cards automatically
+    while ((state.phase as Phase) !== "showdown" && state.phase !== "ended") {
+      if (state.phase === "preflop") {
+        dealBoard(state, 3);
+        state.phase = "flop";
+        events.push({
+          type: "street_dealt",
+          handId: state.handId,
+          data: { phase: state.phase, board: [...state.board] },
+        });
+      } else if (state.phase === "flop") {
+        dealBoard(state, 1);
+        state.phase = "turn";
+        events.push({
+          type: "street_dealt",
+          handId: state.handId,
+          data: { phase: state.phase, board: [...state.board] },
+        });
+      } else if (state.phase === "turn") {
+        dealBoard(state, 1);
+        state.phase = "river";
+        events.push({
+          type: "street_dealt",
+          handId: state.handId,
+          data: { phase: state.phase, board: [...state.board] },
+        });
+      } else if (state.phase === "river") {
+        state.phase = "showdown";
+        break;
+      }
+    }
     resolveHandEnd(state, events);
     return;
   }

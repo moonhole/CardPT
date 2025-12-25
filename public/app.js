@@ -200,6 +200,16 @@ async function requestLlmAction(_input) {
       state && typeof state.currentBet === "number"
         ? Math.max(0, state.currentBet - state.betThisRound[state.actionSeat])
         : 0;
+    // Full table stack & commitment state is required for correct poker reasoning
+    const allPlayers = state && Array.isArray(state.players)
+      ? state.players.map((p) => ({
+          id: p.seat,
+          stack: p.stack,
+          committed: p.totalCommitted,
+          status: p.status,
+        }))
+      : [];
+
     const decisionInput = buildDecisionInput({
       engineFacts: {
         seed: snapshot ? snapshot.config.seed : null,
@@ -217,6 +227,10 @@ async function requestLlmAction(_input) {
         pot: potTotal,
         to_call: toCall,
         legal_actions: legalActions,
+        phase: state ? state.phase : undefined,
+        holeCards: player ? player.holeCards : undefined,
+        board: state ? state.board : undefined,
+        players: allPlayers,
       },
       legalActions,
     });
@@ -353,9 +367,13 @@ function closeSettings() {
 }
 
 settingsCancel.addEventListener("click", closeSettings);
+// 设置窗口激活时，只能通过save/cancel关闭，防止误触背景区域
 settingsBackdrop.addEventListener("click", (event) => {
+  // 如果点击的是背景区域（不是modal内部），阻止事件
   if (event.target === settingsBackdrop) {
-    closeSettings();
+    event.preventDefault();
+    event.stopPropagation();
+    // 不关闭窗口，只能通过save/cancel关闭
   }
 });
 settingsSave.addEventListener("click", () => {

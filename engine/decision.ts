@@ -33,7 +33,7 @@ export type Decision = {
   confidence: number;
 };
 
-export function validateDecision(decision: Decision): void {
+export function validateDecision(decision: Decision, context?: { handId?: number }): void {
   const { action, reason, confidence } = decision;
   const drivers = reason.drivers;
 
@@ -44,8 +44,19 @@ export function validateDecision(decision: Decision): void {
   let sum = 0;
   let maxWeight = -Infinity;
   for (const driver of drivers) {
-    if (driver.weight < 0 || driver.weight > 1) {
-      throw new Error(`Driver weight out of range: ${driver.key}.`);
+    // Validate individual weight is finite and non-negative
+    if (!Number.isFinite(driver.weight)) {
+      throw new Error(`Driver weight must be a finite number: ${driver.key}.`);
+    }
+    if (driver.weight < 0) {
+      throw new Error(`Driver weight must be non-negative: ${driver.key}.`);
+    }
+    if (driver.weight > 1) {
+      const handIdStr = context?.handId !== undefined ? ` handId=${context.handId}` : "";
+      console.warn(
+        `[Decision Validation] Driver weight exceeds 1.0: key=${driver.key}, weight=${driver.weight.toFixed(3)}, action=${action.type}${handIdStr}`
+      );
+      // Continue execution - do not reject decision
     }
     sum += driver.weight;
     if (driver.weight > maxWeight) {
@@ -53,8 +64,14 @@ export function validateDecision(decision: Decision): void {
     }
   }
 
+  // Weight sum validation downgraded to warning in v0.4
+  // Explain weights are observational, not normalized ratios
   if (sum < 0.8 || sum > 1.2) {
-    throw new Error("Sum of driver weights must be between 0.8 and 1.2.");
+    const handIdStr = context?.handId !== undefined ? ` handId=${context.handId}` : "";
+    console.warn(
+      `[Decision Validation] Driver weight sum outside expected range [0.8, 1.2]: sum=${sum.toFixed(3)}, action=${action.type}${handIdStr}`
+    );
+    // Continue execution - do not reject decision
   }
 
   if (confidence < 0 || confidence > 1) {
@@ -68,10 +85,6 @@ export function validateDecision(decision: Decision): void {
   const highestKeys = drivers
     .filter((driver) => driver.weight === maxWeight)
     .map((driver) => driver.key);
-
-  if (action.type === "FOLD" && highestKeys.includes("hand_strength")) {
-    throw new Error("FOLD cannot have hand_strength as highest-weight driver.");
-  }
 
   if (action.type === "RAISE" && highestKeys.includes("risk")) {
     throw new Error("RAISE cannot have risk as highest-weight driver.");

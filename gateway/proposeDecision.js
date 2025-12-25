@@ -68,6 +68,8 @@ export async function proposeDecision(input) {
     throw new Error("Decision schema mismatch.");
   }
 
-  validateDecision(decision);
+  // Extract handId from input if available for warning context
+  const handId = input?.engine_facts?.handId;
+  validateDecision(decision, handId !== undefined ? { handId } : undefined);
   return decision;
 }
