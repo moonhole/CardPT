@@ -10,5 +10,5 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["engine/**/*.ts"]
+  "include": ["engine/**/*.ts", "shared/**/*.ts", "gateway/**/*.ts"]
 }

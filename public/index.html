@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CardPT v0.3</title>
+    <title>CardPT v0.5</title>
     <style>
       :root {
         color-scheme: dark;
@@ -68,9 +68,9 @@
         font-family: "Segoe UI", sans-serif;
       }
       .card.small {
-        width: 28px;
-        height: 38px;
-        font-size: 12px;
+        width: 24px;
+        height: 32px;
+        font-size: 11px;
         margin: 0;
       }
       .seat .card-area {
@@ -163,8 +163,8 @@
         background: #0c1512;
         font-size: 12px;
         /* Tunable layout variables - adjust these to fine-tune spacing */
-        --seat-card-area-height: 52px;
-        --seat-card-gap: 4px;
+        --seat-card-area-height: 48px;
+        --seat-card-gap: 6px;
         --seat-section-gap: 8px;
       }
       .seat.top-left {
@@ -342,6 +342,64 @@
         color: #9fb0ba;
         margin-top: 4px;
       }
+      .modal .error {
+        color: #e07272;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      .modal .credential-field {
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #1f2a33;
+      }
+      .modal .credential-field:last-child {
+        border-bottom: none;
+      }
+      .modal .credential-field label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .modal .credential-input-group {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .modal .credential-input-group input {
+        flex: 1;
+        min-width: 200px;
+      }
+      .modal .credential-input-group button {
+        font-size: 11px;
+        padding: 4px 8px;
+        white-space: nowrap;
+      }
+      .modal .credential-status {
+        font-size: 11px;
+        margin-top: 6px;
+        line-height: 1.4;
+      }
+      .modal .credential-field label[for^="save-local"] {
+        margin-top: 6px;
+        margin-bottom: 0;
+        font-weight: normal;
+      }
+      .modal .credential-field input[type="checkbox"] {
+        width: auto;
+        margin: 0;
+      }
+      .modal .preset-option-disabled {
+        color: #6a7a84;
+        font-style: italic;
+      }
+      .modal .preset-group-label {
+        font-weight: 600;
+        color: #d4e4f0;
+        padding: 4px 0;
+        margin-top: 8px;
+      }
       .modal .row {
         display: flex;
         gap: 8px;
@@ -351,7 +409,7 @@
     </style>
   </head>
   <body>
-    <h1>CardPT v0.3</h1>
+      <h1>CardPT v0.5</h1>
     <div class="layout">
       <div class="table-wrap">
         <div class="table">
@@ -388,16 +446,25 @@
         <input id="settings-stack" type="number" min="0" />
         <label for="settings-mode">Action Mode</label>
         <select id="settings-mode">
-          <option value="manual">manual</option>
-          <option value="llm">llm</option>
+          <option value="manual">Manual</option>
+          <option value="ai">AI Assisted</option>
         </select>
-        <div id="prompt-settings">
-          <label for="settings-prompt-profile">Prompt Profile</label>
-          <select id="settings-prompt-profile"></select>
-          <label for="settings-custom-prompt">Custom Prompt</label>
-          <textarea id="settings-custom-prompt"></textarea>
-          <div class="muted" id="settings-prompt-note"></div>
+        <div id="ai-settings">
+          <label for="settings-model-preset">Model Preset</label>
+          <select id="settings-model-preset">
+            <option value="">-- Select Model --</option>
+          </select>
+          <div class="muted" id="settings-preset-note"></div>
+          <label for="settings-ai-style">AI Style</label>
+          <select id="settings-ai-style">
+          </select>
+          <div class="muted" id="settings-ai-style-note"></div>
+          <div id="credential-settings">
+            <label>Credentials</label>
+            <div id="credential-fields"></div>
+          </div>
         </div>
+        <div id="settings-validation-error" class="error" style="display: none; margin-top: 8px; color: #e07272; font-size: 12px;"></div>
         <div class="row">
           <button id="settings-cancel">Cancel</button>
           <button id="settings-save">Save</button>

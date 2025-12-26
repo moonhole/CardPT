@@ -1,4 +1,4 @@
-# CardPT v0.3
+# CardPT v0.5
 
 An experimental, offline, single-player Texas Hold'em sandbox for observing LLM decision behavior.
 
@@ -23,7 +23,7 @@ CardPT is **not**:
 
 CardPT does not evaluate whether LLM decisions are "correct" or "strong." It provides a controlled environment to see what decisions different prompts produce under the same game conditions.
 
-## Scope (v0.3)
+## Scope (v0.5)
 
 **Game rules:**
 - No-Limit Texas Hold'em, 6 seats

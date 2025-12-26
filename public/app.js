@@ -1,4 +1,18 @@
-﻿const seatsEl = document.getElementById("seats");
+﻿// Phase 1-3 imports
+let ACTION_MODE = null;
+let getAllPresets = null;
+let isCapabilityAllowedForActionMode = null;
+let getAllowedCapabilitiesForActionMode = null;
+let getInMemoryStore = null;
+let setInMemoryStore = null;
+let saveCredentialToLocalStorage = null;
+let loadCredentialFromLocalStorage = null;
+let loadCredentialsIntoMemory = null;
+let removeCredentialFromLocalStorage = null;
+let setCredentialForProvider = null;
+let getCredentialForProvider = null;
+
+const seatsEl = document.getElementById("seats");
 const boardEl = document.getElementById("board");
 const actionsEl = document.getElementById("actions");
 const potsEl = document.getElementById("pots");
@@ -8,10 +22,13 @@ const settingsBackdrop = document.getElementById("settings-backdrop");
 const settingsTitle = document.getElementById("settings-title");
 const settingsStack = document.getElementById("settings-stack");
 const settingsMode = document.getElementById("settings-mode");
-const settingsPromptProfile = document.getElementById("settings-prompt-profile");
-const settingsCustomPrompt = document.getElementById("settings-custom-prompt");
-const settingsPromptNote = document.getElementById("settings-prompt-note");
-const promptSettings = document.getElementById("prompt-settings");
+const settingsModelPreset = document.getElementById("settings-model-preset");
+const settingsPresetNote = document.getElementById("settings-preset-note");
+const settingsAiStyle = document.getElementById("settings-ai-style");
+const settingsAiStyleNote = document.getElementById("settings-ai-style-note");
+const aiSettings = document.getElementById("ai-settings");
+const credentialFields = document.getElementById("credential-fields");
+const settingsValidationError = document.getElementById("settings-validation-error");
 const settingsCancel = document.getElementById("settings-cancel");
 const settingsSave = document.getElementById("settings-save");
 
@@ -123,44 +140,114 @@ over aggressive domination.
   ],
 };
 
+// Initialize Phase 1-3 modules
+async function initPhaseModules() {
+  try {
+    const actionModeMod = await import("/dist/shared/actionMode.js");
+    ACTION_MODE = actionModeMod.ACTION_MODE;
+    
+    const presetRegistryMod = await import("/dist/shared/modelPresetRegistry.js");
+    getAllPresets = presetRegistryMod.getAllPresets;
+    
+    const capabilityMappingMod = await import("/dist/shared/actionModeCapabilityMapping.js");
+    isCapabilityAllowedForActionMode = capabilityMappingMod.isCapabilityAllowedForActionMode;
+    getAllowedCapabilitiesForActionMode = capabilityMappingMod.getAllowedCapabilitiesForActionMode;
+    
+    const credentialStorageMod = await import("/dist/shared/credentialStorage.js");
+    getInMemoryStore = credentialStorageMod.getInMemoryStore;
+    setInMemoryStore = credentialStorageMod.setInMemoryStore;
+    saveCredentialToLocalStorage = credentialStorageMod.saveCredentialToLocalStorage;
+    loadCredentialFromLocalStorage = credentialStorageMod.loadCredentialFromLocalStorage;
+    loadCredentialsIntoMemory = credentialStorageMod.loadCredentialsIntoMemory;
+    removeCredentialFromLocalStorage = credentialStorageMod.removeCredentialFromLocalStorage;
+    
+    const credentialsMod = await import("/dist/shared/credentials.js");
+    setCredentialForProvider = credentialsMod.setCredentialForProvider;
+    getCredentialForProvider = credentialsMod.getCredentialForProvider;
+    
+    // Load credentials from localStorage into memory on initialization
+    if (loadCredentialsIntoMemory) {
+      loadCredentialsIntoMemory(true); // Merge with existing (if any)
+    }
+  } catch (err) {
+    console.error("Failed to load Phase 1-3 modules:", err);
+  }
+}
+
 const seatSettings = [
   {
     stack: 200,
-    actionMode: "llm",
-    promptSelection: PromptRegistry.defaultPromptId,
-    customPrompt: "",
+    actionMode: "ai",
+    selectedPresetId: "qwen-plus",
+    selectedProfileId: null,
   },
   {
     stack: 200,
-    actionMode: "llm",
-    promptSelection: PromptRegistry.defaultPromptId,
-    customPrompt: "",
+    actionMode: "ai",
+    selectedPresetId: "qwen-plus",
+    selectedProfileId: null,
   },
   {
     stack: 200,
-    actionMode: "llm",
-    promptSelection: PromptRegistry.defaultPromptId,
-    customPrompt: "",
+    actionMode: "ai",
+    selectedPresetId: "qwen-plus",
+    selectedProfileId: null,
   },
   {
     stack: 200,
-    actionMode: "llm",
-    promptSelection: PromptRegistry.defaultPromptId,
-    customPrompt: "",
+    actionMode: "ai",
+    selectedPresetId: "qwen-plus",
+    selectedProfileId: null,
   },
   {
     stack: 200,
-    actionMode: "llm",
-    promptSelection: PromptRegistry.defaultPromptId,
-    customPrompt: "",
+    actionMode: "ai",
+    selectedPresetId: "qwen-plus",
+    selectedProfileId: null,
   },
   {
     stack: 200,
-    actionMode: "llm",
-    promptSelection: PromptRegistry.defaultPromptId,
-    customPrompt: "",
+    actionMode: "ai",
+    selectedPresetId: "qwen-plus",
+    selectedProfileId: null,
   },
 ];
+
+// Compatibility mapping: UI value ↔ Internal value
+// UI only exposes "manual" and "ai", but internally we use "ai_standard" for all AI modes
+function normalizeActionModeForUI(actionMode) {
+  // Convert internal values (ai_basic, ai_standard, ai_experimental) to UI value "ai"
+  if (actionMode && actionMode.startsWith("ai_")) {
+    return "ai";
+  }
+  return actionMode || "manual";
+}
+
+function normalizeActionModeForInternal(actionMode) {
+  // Convert UI value "ai" to internal value "ai_experimental"
+  // This allows all models (L1, L2, L3) to be used, which is the desired behavior
+  // for the simplified "AI Assisted" mode
+  if (actionMode === "ai") {
+    return "ai_experimental";
+  }
+  // Keep manual as-is, and preserve any legacy values for compatibility
+  return actionMode || "manual";
+}
+
+// Map gateway messageCode to user-friendly messages
+function getUserFriendlyMessage(messageCode, fallbackMessage) {
+  const messageMap = {
+    "AI_CONFIG_INVALID": "Seat configuration is invalid. Please check your settings.",
+    "CREDENTIAL_MISSING": "API key missing for selected provider.",
+    "PROVIDER_ERROR": "Provider request failed. Please try again later.",
+    "INVALID_RESPONSE_FORMAT": "AI proposal was invalid. You can act manually.",
+    "RESPONSE_SCHEMA_MISMATCH": "AI proposal was invalid. You can act manually.",
+    "ACTION_NOT_LEGAL": "AI proposal was invalid. You can act manually.",
+    "CAPABILITY_RESTRICTED": "This model is not allowed to raise in the current mode.",
+  };
+  
+  return messageMap[messageCode] || fallbackMessage || "AI proposal failed. You can act manually.";
+}
 
 async function requestLlmAction(_input) {
   const input = _input || {};
@@ -169,24 +256,6 @@ async function requestLlmAction(_input) {
   const seat = typeof input.seat === "number" ? input.seat : 0;
   const player = state ? state.players[seat] : null;
 
-  const profileId = input.promptSelection || PromptRegistry.defaultPromptId;
-  const profile = PromptRegistry.profiles.find((p) => p.id === profileId);
-  const profilePrompt = profile ? profile.prompt : "";
-  const customPrompt = input.customPrompt || "";
-
-  const seatInfo = player
-    ? {
-      seat: player.seat,
-      stack: player.stack,
-      committed: player.totalCommitted,
-      holeCards: player.holeCards,
-      status: player.status,
-    }
-    : null;
-  const board = state ? state.board : [];
-  const potTotal = state
-    ? state.pots.reduce((sum, pot) => sum + pot.amount, 0)
-    : 0;
   const legalActions = Array.isArray(input.legalActions)
     ? input.legalActions
     : [];
@@ -210,21 +279,32 @@ async function requestLlmAction(_input) {
         }))
       : [];
 
+    // Get user-selected profile or fallback to default
+    const selectedProfileId = input.selectedProfileId || PromptRegistry.defaultPromptId;
+    let profile = PromptRegistry.profiles.find(p => p.id === selectedProfileId);
+    
+    // Fallback to default if selected profile not found or has empty prompt
+    if (!profile || !profile.prompt || !profile.prompt.trim()) {
+      profile = PromptRegistry.profiles.find(p => p.id === PromptRegistry.defaultPromptId) || PromptRegistry.profiles[0];
+    }
+    
     const decisionInput = buildDecisionInput({
       engineFacts: {
         seed: snapshot ? snapshot.config.seed : null,
         handId: snapshot ? snapshot.state.handId : null,
       },
       profile: {
-        id: profileId,
-        name: profile ? profile.name : "Unknown",
-        description: profile ? profile.description : "",
-        prompt: profilePrompt,
-        custom_prompt: customPrompt,
+        id: profile.id,
+        name: profile.name,
+        description: profile.description || "",
+        prompt: profile.prompt || "",
+        custom_prompt: "",
       },
       state: {
         position: state ? state.actionSeat : null,
-        pot: potTotal,
+        pot: state
+          ? state.pots.reduce((sum, pot) => sum + pot.amount, 0)
+          : 0,
         to_call: toCall,
         legal_actions: legalActions,
         phase: state ? state.phase : undefined,
@@ -235,37 +315,118 @@ async function requestLlmAction(_input) {
       legalActions,
     });
 
+    // Get credential for the selected preset's provider
+    const presetId = input.selectedPresetId;
+    let credential = null;
+    if (presetId && getAllPresets && getInMemoryStore) {
+      const presets = getAllPresets();
+      const preset = presets.find(p => p.id === presetId);
+      if (preset) {
+        const credentialStore = getInMemoryStore();
+        credential = getCredentialForProvider ? getCredentialForProvider(credentialStore, preset.provider) : null;
+      }
+    }
+
+    // TODO: DEBUG ONLY - MUST DELETE
+    // Log raw LLM request data for debugging
+    const requestPayload = {
+      ...decisionInput,
+      presetId: presetId || "qwen-plus",
+      actionMode: input.actionMode || "ai_standard",
+      credential: credential ? {
+        provider: credential.provider,
+        apiKey: credential.apiKey ? "[REDACTED]" : undefined,
+        metadata: credential.metadata,
+      } : undefined,
+    };
+    console.log("[DEBUG] Raw LLM Request (MUST DELETE):", JSON.stringify(requestPayload, null, 2));
+
     const response = await fetch("/api/llm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify(decisionInput),
+      body: JSON.stringify({
+        ...decisionInput,
+        presetId: presetId || "qwen-plus",
+        // Ensure actionMode is in internal format (ai → ai_standard)
+        actionMode: input.actionMode || "ai_standard",
+        credential: credential || undefined,
+      }),
     });
 
-    if (!response.ok) {
-      throw { type: "llm_error", message: "LLM proxy error." };
+    const responseData = await response.json();
+    
+    // TODO: DEBUG ONLY - MUST DELETE
+    // Log raw LLM response data for debugging
+    console.log("[DEBUG] Raw LLM Response (MUST DELETE):", JSON.stringify(responseData, null, 2));
+
+    // Check for fallback or rejection
+    if (responseData.fallback === true) {
+      // Gateway returned fallback or rejection
+      const userMessage = getUserFriendlyMessage(
+        responseData.messageCode,
+        responseData.error || responseData.message
+      );
+      throw {
+        type: "gateway_rejection",
+        message: userMessage,
+        messageCode: responseData.messageCode,
+        allowManualFallback: responseData.allowManualFallback !== false,
+      };
     }
 
-    const decision = await response.json();
-    if (!decision || !decision.action || !decision.reason) {
-      throw { type: "llm_error", message: "Decision schema mismatch." };
+    // Check for successful decision
+    if (!response.ok) {
+      throw {
+        type: "gateway_rejection",
+        message: "AI proposal failed. You can act manually.",
+        messageCode: "PROVIDER_ERROR",
+        allowManualFallback: true,
+      };
     }
-    const rawType = String(decision.action.type || "").toUpperCase();
+
+    // Validate decision structure
+    if (!responseData || !responseData.action || !responseData.reason) {
+      throw {
+        type: "gateway_rejection",
+        message: "AI proposal was invalid. You can act manually.",
+        messageCode: "RESPONSE_SCHEMA_MISMATCH",
+        allowManualFallback: true,
+      };
+    }
+
+    const rawType = String(responseData.action.type || "").toUpperCase();
     if (rawType === "FOLD" || rawType === "CALL" || rawType === "RAISE") {
-      decision.action.type = rawType;
+      responseData.action.type = rawType;
     } else {
-      throw { type: "llm_error", message: "Decision action type invalid." };
+      throw {
+        type: "gateway_rejection",
+        message: "AI proposal was invalid. You can act manually.",
+        messageCode: "ACTION_NOT_LEGAL",
+        allowManualFallback: true,
+      };
     }
-    return decision;
+
+    return responseData;
   } catch (err) {
     console.warn("[LLM] requestLlmAction failed", err);
     if (err && err.name === "AbortError") {
-      throw { type: "llm_error", message: "LLM request timed out." };
+      throw {
+        type: "gateway_rejection",
+        message: "Request timed out. You can act manually.",
+        messageCode: "PROVIDER_ERROR",
+        allowManualFallback: true,
+      };
     }
-    if (err && err.type === "llm_error") {
+    if (err && err.type === "gateway_rejection") {
       throw err;
     }
-    throw { type: "llm_error", message: "LLM request failed.", cause: err };
+    throw {
+      type: "gateway_rejection",
+      message: "AI proposal failed. You can act manually.",
+      messageCode: "PROVIDER_ERROR",
+      allowManualFallback: true,
+    };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -346,89 +507,536 @@ function hasNewHandStarted(events, lastHandId) {
   return false;
 }
 
+// Group presets by provider for display
+function groupPresetsByProvider(presets) {
+  const grouped = {};
+  for (const preset of presets) {
+    if (!grouped[preset.provider]) {
+      grouped[preset.provider] = [];
+    }
+    grouped[preset.provider].push(preset);
+  }
+  return grouped;
+}
+
+// Build mapping from preset ID to required provider
+function buildModelPresetRequirements() {
+  if (!getAllPresets) {
+    return {};
+  }
+  const presets = getAllPresets();
+  const mapping = {};
+  for (const preset of presets) {
+    mapping[preset.id] = [preset.provider];
+  }
+  return mapping;
+}
+
+// Update credential visibility based on selected preset
+function updateCredentialVisibility(presetKey) {
+  const MODEL_PRESET_REQUIREMENTS = buildModelPresetRequirements();
+  const required = MODEL_PRESET_REQUIREMENTS[presetKey] ?? [];
+  document.querySelectorAll(".credential-block").forEach(el => {
+    el.style.display = required.includes(el.dataset.provider)
+      ? "block"
+      : "none";
+  });
+}
+
+// Get capability requirement message for disabled preset
+// Simplified: no longer shows mode requirements in UI
+function getCapabilityRequirementMessage(actionMode, presetCapability) {
+  // All capability checks are handled internally, no UI messages needed
+  return "";
+}
+
+// Render model preset options with constraints
+function renderModelPresetOptions() {
+  if (!getAllPresets || !isCapabilityAllowedForActionMode) {
+    settingsModelPreset.innerHTML = '<option value="">Loading presets...</option>';
+    return;
+  }
+  
+  settingsModelPreset.innerHTML = "";
+  const presets = getAllPresets();
+  const uiActionMode = settingsMode.value;
+  // Convert UI value to internal value for capability checks
+  const actionMode = normalizeActionModeForInternal(uiActionMode);
+  const grouped = groupPresetsByProvider(presets);
+  
+  // Add default option
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "-- Select Model --";
+  settingsModelPreset.appendChild(defaultOption);
+  
+  // Render grouped by provider
+  const providers = Object.keys(grouped).sort();
+  for (const provider of providers) {
+    // Provider group label (using optgroup)
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = provider.charAt(0).toUpperCase() + provider.slice(1);
+    
+    for (const preset of grouped[provider]) {
+      const option = document.createElement("option");
+      option.value = preset.id;
+      
+      // Build display text (no experimental indicator in UI)
+      const displayText = preset.displayName;
+      option.textContent = displayText;
+      
+      // Check if preset is allowed for current ActionMode
+      const isAllowed = isCapabilityAllowedForActionMode(actionMode, preset.capability);
+      
+      if (!isAllowed) {
+        option.disabled = true;
+        option.className = "preset-option-disabled";
+        option.textContent += " (Not available)";
+      }
+      
+      optgroup.appendChild(option);
+    }
+    
+    settingsModelPreset.appendChild(optgroup);
+  }
+}
+
+// Render credential fields for all providers
+function renderCredentialFields() {
+  if (!getAllPresets) {
+    credentialFields.innerHTML = '<div class="muted">Loading credential fields...</div>';
+    return;
+  }
+  
+  credentialFields.innerHTML = "";
+  const presets = getAllPresets();
+  const providers = [...new Set(presets.map(p => p.provider))].sort();
+  const credentialStore = getInMemoryStore ? getInMemoryStore() : {};
+  
+  for (const provider of providers) {
+    const credential = getCredentialForProvider ? getCredentialForProvider(credentialStore, provider) : null;
+    const hasKey = credential && credential.apiKey;
+    
+    // Check if key is saved to localStorage
+    const savedLocally = loadCredentialFromLocalStorage ? loadCredentialFromLocalStorage(provider) !== undefined : false;
+    
+    const fieldDiv = document.createElement("div");
+    fieldDiv.className = "credential-field credential-block";
+    fieldDiv.setAttribute("data-provider", provider);
+    
+    const label = document.createElement("label");
+    label.textContent = `${provider.charAt(0).toUpperCase() + provider.slice(1)} API Key`;
+    fieldDiv.appendChild(label);
+    
+    const inputGroup = document.createElement("div");
+    inputGroup.className = "credential-input-group";
+    
+    const input = document.createElement("input");
+    input.type = "password";
+    input.id = `credential-${provider}`;
+    input.placeholder = hasKey ? "••••••••" : "Enter API key";
+    if (hasKey) {
+      input.value = credential.apiKey;
+    }
+    
+    // Show/Hide toggle button
+    const showHideBtn = document.createElement("button");
+    showHideBtn.type = "button";
+    showHideBtn.textContent = "Show";
+    showHideBtn.style.fontSize = "11px";
+    showHideBtn.style.padding = "4px 8px";
+    showHideBtn.onclick = () => {
+      if (input.type === "password") {
+        input.type = "text";
+        showHideBtn.textContent = "Hide";
+      } else {
+        input.type = "password";
+        showHideBtn.textContent = "Show";
+      }
+    };
+    
+    inputGroup.appendChild(input);
+    inputGroup.appendChild(showHideBtn);
+    
+    // Save to memory button
+    const saveMemoryBtn = document.createElement("button");
+    saveMemoryBtn.textContent = "Save";
+    saveMemoryBtn.type = "button";
+    saveMemoryBtn.onclick = () => {
+      const key = input.value.trim();
+      if (!key) {
+        alert("Please enter an API key");
+        return;
+      }
+      if (setCredentialForProvider && setInMemoryStore) {
+        const newStore = setCredentialForProvider(credentialStore, {
+          provider,
+          apiKey: key,
+        });
+        setInMemoryStore(newStore);
+        renderCredentialFields(); // Refresh display
+      }
+    };
+    inputGroup.appendChild(saveMemoryBtn);
+    
+    // Save locally checkbox
+    const saveLocalLabel = document.createElement("label");
+    saveLocalLabel.style.display = "flex";
+    saveLocalLabel.style.alignItems = "center";
+    saveLocalLabel.style.gap = "6px";
+    saveLocalLabel.style.fontSize = "11px";
+    saveLocalLabel.style.marginTop = "4px";
+    saveLocalLabel.style.cursor = "pointer";
+    
+    const saveLocalCheckbox = document.createElement("input");
+    saveLocalCheckbox.type = "checkbox";
+    saveLocalCheckbox.id = `save-local-${provider}`;
+    saveLocalCheckbox.checked = savedLocally;
+    saveLocalCheckbox.onchange = () => {
+      const key = input.value.trim();
+      if (saveLocalCheckbox.checked) {
+        // Save to localStorage
+        if (!key && hasKey) {
+          // Use existing key from memory
+          if (saveCredentialToLocalStorage && credential) {
+            try {
+              saveCredentialToLocalStorage(credential);
+              renderCredentialFields(); // Refresh display
+            } catch (err) {
+              console.warn("Failed to save credential to localStorage:", err);
+              saveLocalCheckbox.checked = false;
+              alert("Failed to save locally. Key may be too large or storage unavailable.");
+            }
+          }
+        } else if (key) {
+          // Save new key to localStorage
+          if (saveCredentialToLocalStorage) {
+            try {
+              saveCredentialToLocalStorage({
+                provider,
+                apiKey: key,
+              });
+              // Also save to memory
+              if (setCredentialForProvider && setInMemoryStore) {
+                const newStore = setCredentialForProvider(credentialStore, {
+                  provider,
+                  apiKey: key,
+                });
+                setInMemoryStore(newStore);
+              }
+              renderCredentialFields(); // Refresh display
+            } catch (err) {
+              console.warn("Failed to save credential to localStorage:", err);
+              saveLocalCheckbox.checked = false;
+              alert("Failed to save locally. Key may be too large or storage unavailable.");
+            }
+          }
+        } else {
+          saveLocalCheckbox.checked = false;
+          alert("Please enter an API key first");
+        }
+      } else {
+        // Remove from localStorage
+        if (removeCredentialFromLocalStorage) {
+          removeCredentialFromLocalStorage(provider);
+          renderCredentialFields(); // Refresh display
+        }
+      }
+    };
+    
+    const saveLocalText = document.createElement("span");
+    saveLocalText.textContent = "Save locally on this device";
+    saveLocalLabel.appendChild(saveLocalCheckbox);
+    saveLocalLabel.appendChild(saveLocalText);
+    
+    // Clear button
+    const clearBtn = document.createElement("button");
+    clearBtn.textContent = "Clear";
+    clearBtn.type = "button";
+    clearBtn.style.fontSize = "11px";
+    clearBtn.style.padding = "4px 8px";
+    clearBtn.style.opacity = hasKey ? "1" : "0.5";
+    clearBtn.disabled = !hasKey;
+    clearBtn.onclick = () => {
+      if (confirm(`Clear API key for ${provider}?`)) {
+        // Clear from memory
+        if (setCredentialForProvider && setInMemoryStore) {
+          const { [provider]: _, ...rest } = credentialStore;
+          setInMemoryStore(rest);
+        }
+        // Clear from localStorage
+        if (removeCredentialFromLocalStorage) {
+          removeCredentialFromLocalStorage(provider);
+        }
+        input.value = "";
+        renderCredentialFields(); // Refresh display
+      }
+    };
+    inputGroup.appendChild(clearBtn);
+    
+    fieldDiv.appendChild(inputGroup);
+    fieldDiv.appendChild(saveLocalLabel);
+    
+    // Status indicator
+    const status = document.createElement("div");
+    status.className = "credential-status";
+    if (hasKey) {
+      if (savedLocally) {
+        status.textContent = "Key present (saved on this device)";
+        status.style.color = "#6fb3ff";
+      } else {
+        status.textContent = "Key present (memory only - cleared on refresh unless saved)";
+        status.style.color = "#9fb0ba";
+      }
+    } else {
+      status.textContent = "Key not set";
+      status.style.color = "#6a7a84";
+    }
+    fieldDiv.appendChild(status);
+    
+    credentialFields.appendChild(fieldDiv);
+  }
+  
+  // Update credential visibility based on current preset selection
+  updateCredentialVisibility(settingsModelPreset.value);
+}
+
+// Render AI Style options in settings
+function renderAiStyleOptions() {
+  if (!settingsAiStyle) return;
+  
+  settingsAiStyle.innerHTML = "";
+  
+  for (const profile of PromptRegistry.profiles) {
+    const option = document.createElement("option");
+    option.value = profile.id;
+    option.textContent = profile.name;
+    settingsAiStyle.appendChild(option);
+  }
+}
+
+// Update AI Style note based on selection
+function updateAiStyleNote() {
+  if (!settingsAiStyleNote || !settingsAiStyle) return;
+  
+  const selectedId = settingsAiStyle.value;
+  const profile = PromptRegistry.profiles.find(p => p.id === selectedId);
+  
+  if (profile) {
+    settingsAiStyleNote.textContent = profile.description || "";
+  } else {
+    settingsAiStyleNote.textContent = "";
+  }
+}
+
+// Update preset note based on selection
+function updatePresetNote() {
+  if (!getAllPresets) {
+    settingsPresetNote.textContent = "";
+    return;
+  }
+  
+  const selectedId = settingsModelPreset.value;
+  const uiActionMode = settingsMode.value;
+  
+  if (!selectedId) {
+    settingsPresetNote.textContent = "No model selected";
+    return;
+  }
+  
+  const presets = getAllPresets();
+  const preset = presets.find(p => p.id === selectedId);
+  
+  if (!preset) {
+    settingsPresetNote.textContent = "Unknown preset";
+    return;
+  }
+  
+  // Convert UI value to internal value for capability checks
+  const actionMode = normalizeActionModeForInternal(uiActionMode);
+  const isAllowed = isCapabilityAllowedForActionMode(actionMode, preset.capability);
+  
+  if (!isAllowed) {
+    settingsPresetNote.textContent = "⚠ Model not available";
+    settingsPresetNote.style.color = "#e07272";
+  } else {
+    // Simplified note: no capability or experimental indicators
+    settingsPresetNote.textContent = `Selected: ${preset.displayName}`;
+    settingsPresetNote.style.color = "#9fb0ba";
+  }
+}
+
+// Validate seat configuration
+function validateSeatConfiguration() {
+  const uiActionMode = settingsMode.value;
+  const selectedPresetId = settingsModelPreset.value;
+  
+  // Manual mode: no preset required
+  if (uiActionMode === "manual") {
+    return { ok: true };
+  }
+  
+  // AI modes: preset required
+  if (!selectedPresetId) {
+    return {
+      ok: false,
+      message: "Please select a model preset for AI mode",
+    };
+  }
+  
+  // Check capability constraint (using internal actionMode)
+  if (!getAllPresets || !isCapabilityAllowedForActionMode) {
+    return { ok: true }; // Can't validate without modules
+  }
+  
+  const presets = getAllPresets();
+  const preset = presets.find(p => p.id === selectedPresetId);
+  
+  if (!preset) {
+    return {
+      ok: false,
+      message: "Selected preset not found",
+    };
+  }
+  
+  // Convert UI value to internal value for capability check
+  const actionMode = normalizeActionModeForInternal(uiActionMode);
+  const isAllowed = isCapabilityAllowedForActionMode(actionMode, preset.capability);
+  
+  if (!isAllowed) {
+    return {
+      ok: false,
+      message: "Selected model is not available",
+    };
+  }
+  
+  return { ok: true };
+}
+
 function openSettings(seatIndex) {
   editingSeat = seatIndex;
   const settings = seatSettings[seatIndex];
   settingsTitle.textContent = `Seat ${seatIndex} Settings`;
   settingsStack.value = String(settings.stack);
-  settingsMode.value = settings.actionMode;
-  renderPromptProfileOptions();
-  settingsPromptProfile.value = settings.promptSelection;
-  settingsCustomPrompt.value = settings.customPrompt;
-  promptSettings.style.display =
-    settings.actionMode === "llm" ? "block" : "none";
-  updatePromptNote();
+  // Normalize actionMode for UI display (convert internal ai_* to "ai")
+  settingsMode.value = normalizeActionModeForUI(settings.actionMode || "manual");
+  
+  // Show/hide AI settings based on mode
+  aiSettings.style.display = settingsMode.value === "manual" ? "none" : "block";
+  
+  // Render AI Style options and set selected value
+  renderAiStyleOptions();
+  settingsAiStyle.value = settings.selectedProfileId || PromptRegistry.defaultPromptId;
+  updateAiStyleNote();
+  
+  // Render model preset options
+  renderModelPresetOptions();
+  settingsModelPreset.value = settings.selectedPresetId || "";
+  
+  // Render credential fields
+  renderCredentialFields();
+  
+  // Update credential visibility based on current preset selection
+  updateCredentialVisibility(settingsModelPreset.value);
+  
+  // Update notes
+  updatePresetNote();
+  
+  // Clear validation error
+  settingsValidationError.style.display = "none";
+  
   settingsBackdrop.style.display = "flex";
 }
 
 function closeSettings() {
   editingSeat = null;
   settingsBackdrop.style.display = "none";
+  settingsValidationError.style.display = "none";
 }
 
 settingsCancel.addEventListener("click", closeSettings);
-// 设置窗口激活时，只能通过save/cancel关闭，防止误触背景区域
 settingsBackdrop.addEventListener("click", (event) => {
-  // 如果点击的是背景区域（不是modal内部），阻止事件
   if (event.target === settingsBackdrop) {
     event.preventDefault();
     event.stopPropagation();
-    // 不关闭窗口，只能通过save/cancel关闭
   }
 });
+
 settingsSave.addEventListener("click", () => {
   if (editingSeat === null) {
     closeSettings();
     return;
   }
+  
+  // Validate configuration
+  const validation = validateSeatConfiguration();
+  if (!validation.ok) {
+    settingsValidationError.textContent = validation.message;
+    settingsValidationError.style.display = "block";
+    return;
+  }
+  
   const stackValue = Number(settingsStack.value);
+  const uiActionMode = settingsMode.value;
+  // Convert UI value to internal value (ai → ai_experimental)
+  const actionMode = normalizeActionModeForInternal(uiActionMode);
+  const selectedPresetId = settingsModelPreset.value || null;
+  const selectedProfileId = settingsAiStyle.value || PromptRegistry.defaultPromptId;
+  
   seatSettings[editingSeat] = {
     stack: Number.isFinite(stackValue) && stackValue >= 0 ? stackValue : 0,
-    actionMode: settingsMode.value === "llm" ? "llm" : "manual",
-    promptSelection:
-      settingsPromptProfile.value || PromptRegistry.defaultPromptId,
-    customPrompt: settingsCustomPrompt.value || "",
+    actionMode: actionMode,
+    selectedPresetId: uiActionMode === "manual" ? null : selectedPresetId,
+    selectedProfileId: uiActionMode === "manual" ? null : selectedProfileId,
   };
+  
   closeSettings();
-  // Controller mode and profile changes take effect immediately - update UI right away
-  // Stack changes during a hand will apply next hand (handled in render)
+  
+  // Update UI
   if (gameStarted && engine) {
     render();
   } else {
-    // Pre-game: update UI immediately to show profile selection
     renderPreGame();
   }
 });
 
 settingsMode.addEventListener("change", () => {
-  promptSettings.style.display =
-    settingsMode.value === "llm" ? "block" : "none";
+  const uiActionMode = settingsMode.value;
+  aiSettings.style.display = uiActionMode === "manual" ? "none" : "block";
+  
+  // Convert UI value to internal value for capability checks
+  const actionMode = normalizeActionModeForInternal(uiActionMode);
+  
+  // Re-render preset options to update disabled states
+  renderModelPresetOptions();
+  
+  // Check if current preset is still valid
+  const selectedPresetId = settingsModelPreset.value;
+  if (selectedPresetId && getAllPresets && isCapabilityAllowedForActionMode) {
+    const presets = getAllPresets();
+    const preset = presets.find(p => p.id === selectedPresetId);
+    if (preset && !isCapabilityAllowedForActionMode(actionMode, preset.capability)) {
+      // Preset is no longer valid - clear selection and show warning
+      settingsModelPreset.value = "";
+      settingsValidationError.textContent = `Selected model is not allowed. Please select a different model.`;
+      settingsValidationError.style.display = "block";
+    }
+  }
+  
+  updatePresetNote();
 });
 
-settingsPromptProfile.addEventListener("change", updatePromptNote);
-settingsCustomPrompt.addEventListener("input", updatePromptNote);
+settingsModelPreset.addEventListener("change", () => {
+  updatePresetNote();
+  // Update credential visibility based on selected preset
+  updateCredentialVisibility(settingsModelPreset.value);
+  // Clear validation error when user changes selection
+  settingsValidationError.style.display = "none";
+});
 
-function renderPromptProfileOptions() {
-  settingsPromptProfile.innerHTML = "";
-  // Show all profiles including the default - display concrete names, not "Use Default"
-  for (const profile of PromptRegistry.profiles) {
-    const option = document.createElement("option");
-    option.value = profile.id;
-    option.textContent = profile.name;
-    settingsPromptProfile.appendChild(option);
-  }
-}
-
-function updatePromptNote() {
-  const selectedId =
-    settingsPromptProfile.value || PromptRegistry.defaultPromptId;
-  const profile = PromptRegistry.profiles.find((p) => p.id === selectedId);
-  const custom = settingsCustomPrompt.value.trim();
-  const profileName = profile ? profile.name : "Unknown";
-  settingsPromptNote.textContent = custom
-    ? `Custom prompt overrides profile (${profileName}).`
-    : `Using profile: ${profileName}.`;
-}
+settingsAiStyle.addEventListener("change", () => {
+  updateAiStyleNote();
+});
 
 async function loadEngine() {
   try {
@@ -470,7 +1078,7 @@ function render() {
     const seatInfo = document.createElement("div");
     seatInfo.className = "seat-info";
 
-    // Seat number and state badges (max 2)
+    // Seat number and state badges
     const badgeRow = document.createElement("div");
     badgeRow.className = "badge-row";
     const seatLabel = document.createElement("span");
@@ -489,6 +1097,7 @@ function render() {
     statusBadge.className = `badge status-${player.status}`;
     statusBadge.textContent = player.status;
     badgeRow.appendChild(statusBadge);
+    
     seatInfo.appendChild(badgeRow);
 
     // Numeric fields as aligned text rows
@@ -516,25 +1125,50 @@ function render() {
     committedRow.appendChild(committedValue);
     seatInfo.appendChild(committedRow);
 
-    // Prompt info (if LLM) - as text row
-    if (seatSettings[player.seat].actionMode === "llm") {
-      const promptRow = document.createElement("div");
-      promptRow.className = "info-row";
-      const promptLabel = document.createElement("span");
-      promptLabel.className = "info-label";
-      promptLabel.textContent = "Prompt";
-      const promptValue = document.createElement("span");
-      promptValue.className = "info-value";
-      promptValue.style.fontSize = "10px";
-      promptValue.textContent = seatSettings[player.seat].customPrompt
-        ? "Custom"
-        : getPromptName(
-          seatSettings[player.seat].promptSelection ||
-          PromptRegistry.defaultPromptId
-        );
-      promptRow.appendChild(promptLabel);
-      promptRow.appendChild(promptValue);
-      seatInfo.appendChild(promptRow);
+    // Model preset info (if AI mode) - as text row
+    const internalActionMode = seatSettings[player.seat].actionMode;
+    const actionMode = normalizeActionModeForUI(internalActionMode);
+    if (actionMode && actionMode !== "manual") {
+      const presetRow = document.createElement("div");
+      presetRow.className = "info-row";
+      const presetLabel = document.createElement("span");
+      presetLabel.className = "info-label";
+      presetLabel.textContent = "Model";
+      const presetValue = document.createElement("span");
+      presetValue.className = "info-value";
+      presetValue.style.fontSize = "10px";
+      const presetId = seatSettings[player.seat].selectedPresetId;
+      if (presetId && getAllPresets) {
+        const presets = getAllPresets();
+        const preset = presets.find(p => p.id === presetId);
+        if (preset) {
+          // No experimental indicator in UI
+          presetValue.textContent = preset.displayName;
+        } else {
+          presetValue.textContent = presetId;
+        }
+      } else {
+        presetValue.textContent = "Qwen Plus";
+      }
+      presetRow.appendChild(presetLabel);
+      presetRow.appendChild(presetValue);
+      seatInfo.appendChild(presetRow);
+
+      // Style/Profile info - as text row
+      const styleRow = document.createElement("div");
+      styleRow.className = "info-row";
+      const styleLabel = document.createElement("span");
+      styleLabel.className = "info-label";
+      styleLabel.textContent = "Style";
+      const styleValue = document.createElement("span");
+      styleValue.className = "info-value";
+      styleValue.style.fontSize = "10px";
+      const selectedProfileId = seatSettings[player.seat].selectedProfileId || PromptRegistry.defaultPromptId;
+      const activeProfile = PromptRegistry.profiles.find(p => p.id === selectedProfileId) || PromptRegistry.profiles[0];
+      styleValue.textContent = activeProfile ? activeProfile.name : "Unknown";
+      styleRow.appendChild(styleLabel);
+      styleRow.appendChild(styleValue);
+      seatInfo.appendChild(styleRow);
     }
 
     // Pending stack change - as text row
@@ -583,7 +1217,9 @@ function renderActions() {
   }
   const snapshot = engine.getSnapshot();
   const state = snapshot.state;
-  const actionMode = seatSettings[state.actionSeat]?.actionMode || "manual";
+  const internalActionMode = seatSettings[state.actionSeat]?.actionMode || "manual";
+  const actionMode = normalizeActionModeForUI(internalActionMode);
+  const isAiMode = actionMode && actionMode !== "manual";
   const turnKey = `${state.handId}:${state.phase}:${state.actionSeat}:${snapshot.actionHistory.length}`;
 
   if (state.phase === "ended") {
@@ -612,16 +1248,19 @@ function renderActions() {
     llmState = { turnKey, status: "idle", proposal: null, error: "" };
   }
 
-  if (actionMode === "llm") {
+  if (isAiMode) {
     const legal = engine.getLegalActions();
 
     if (llmState.status === "idle") {
       llmState.status = "loading";
+      // Use internal actionMode for LLM request (ai → ai_experimental)
+      const requestActionMode = normalizeActionModeForInternal(actionMode);
       requestLlmAction({
         seat: state.actionSeat,
         legalActions: legal,
-        promptSelection: seatSettings[state.actionSeat]?.promptSelection,
-        customPrompt: seatSettings[state.actionSeat]?.customPrompt,
+        actionMode: requestActionMode,
+        selectedPresetId: seatSettings[state.actionSeat]?.selectedPresetId,
+        selectedProfileId: seatSettings[state.actionSeat]?.selectedProfileId,
       })
         .then((proposal) => {
           const resolved = resolveLlmDecision(proposal, legal);
@@ -649,11 +1288,20 @@ function renderActions() {
         })
         .catch((err) => {
           console.warn("[LLM] proposal failed branch", err);
+          // Extract user-friendly message from gateway rejection
+          let errorMessage = "AI proposal failed. You can act manually.";
+          if (err && err.type === "gateway_rejection" && err.message) {
+            errorMessage = err.message;
+          } else if (err && err.message) {
+            // Fallback to error message if available
+            errorMessage = err.message;
+          }
+          
           llmState = {
             turnKey,
             status: "manual",
             proposal: null,
-            error: "LLM proposal failed. Falling back to manual controls.",
+            error: errorMessage,
           };
           render();
         });
@@ -662,6 +1310,33 @@ function renderActions() {
     if (llmState.status === "loading") {
       const panel = document.createElement("div");
       panel.className = "llm-panel";
+      
+      // Show control state clearly
+      const controlState = document.createElement("div");
+      controlState.style.fontSize = "11px";
+      controlState.style.color = "#6fb3ff";
+      controlState.style.marginBottom = "8px";
+      controlState.style.fontWeight = "600";
+      controlState.style.textTransform = "uppercase";
+      controlState.style.letterSpacing = "0.5px";
+      
+      const presetId = seatSettings[state.actionSeat]?.selectedPresetId;
+      let modelName = "AI";
+      if (presetId && getAllPresets) {
+        const presets = getAllPresets();
+        const preset = presets.find(p => p.id === presetId);
+        if (preset) {
+          modelName = preset.displayName;
+        }
+      }
+      // Display actual profile being used (user-selected or default)
+      const selectedProfileId = seatSettings[state.actionSeat]?.selectedProfileId || PromptRegistry.defaultPromptId;
+      const activeProfile = PromptRegistry.profiles.find(p => p.id === selectedProfileId) || PromptRegistry.profiles[0];
+      const profileName = activeProfile ? activeProfile.name : "Balanced Amateur (v1)";
+      const controlText = `AI Control: ${modelName} • Style: ${profileName}`;
+      controlState.textContent = controlText;
+      panel.appendChild(controlState);
+      
       const title = document.createElement("div");
       title.className = "title";
       title.textContent = "AI Decision";
@@ -682,6 +1357,32 @@ function renderActions() {
     if (llmState.status === "proposed") {
       const panel = document.createElement("div");
       panel.className = "llm-panel";
+
+      // Show control state clearly
+      const controlState = document.createElement("div");
+      controlState.style.fontSize = "11px";
+      controlState.style.color = "#6fb3ff";
+      controlState.style.marginBottom = "8px";
+      controlState.style.fontWeight = "600";
+      controlState.style.textTransform = "uppercase";
+      controlState.style.letterSpacing = "0.5px";
+      
+      const presetId = seatSettings[state.actionSeat]?.selectedPresetId;
+      let modelName = "AI";
+      if (presetId && getAllPresets) {
+        const presets = getAllPresets();
+        const preset = presets.find(p => p.id === presetId);
+        if (preset) {
+          modelName = preset.displayName;
+        }
+      }
+      // Display actual profile being used (user-selected or default)
+      const selectedProfileId = seatSettings[state.actionSeat]?.selectedProfileId || PromptRegistry.defaultPromptId;
+      const activeProfile = PromptRegistry.profiles.find(p => p.id === selectedProfileId) || PromptRegistry.profiles[0];
+      const profileName = activeProfile ? activeProfile.name : "Balanced Amateur (v1)";
+      const controlText = `AI Control: ${modelName} • Style: ${profileName}`;
+      controlState.textContent = controlText;
+      panel.appendChild(controlState);
 
       // Title: "AI Decision" - secondary header
       const title = document.createElement("div");
@@ -809,25 +1510,71 @@ function renderActions() {
       actionsEl.appendChild(panel);
       return;
     }
+  }
 
-    if (llmState.status === "manual") {
-      const panel = document.createElement("div");
-      panel.className = "llm-panel";
-      const title = document.createElement("div");
-      title.className = "title";
-      title.textContent = "AI Decision";
-      title.style.marginBottom = "8px";
-      title.style.fontSize = "13px";
-      title.style.color = "#9fb0ba";
-      panel.appendChild(title);
-      const error = document.createElement("div");
-      error.className = "error";
-      error.style.fontSize = "12px";
-      error.style.lineHeight = "1.4";
-      error.textContent = llmState.error || "Invalid proposal.";
-      panel.appendChild(error);
-      actionsEl.appendChild(panel);
-    }
+  // Create fixed-height message container to prevent button layout shift
+  // This ensures buttons maintain consistent position whether fallback message is shown or not
+  const messageContainer = document.createElement("div");
+  messageContainer.style.minHeight = "120px"; // Fixed height to prevent layout shift
+  messageContainer.style.marginBottom = "12px";
+  
+  // Insert fallback panel if AI mode failed and switched to manual
+  if (isAiMode && llmState.status === "manual") {
+    const panel = document.createElement("div");
+    panel.className = "llm-panel";
+    
+    // Show control state transition clearly
+    const controlState = document.createElement("div");
+    controlState.style.fontSize = "11px";
+    controlState.style.color = "#e6a872";
+    controlState.style.marginBottom = "8px";
+    controlState.style.fontWeight = "600";
+    controlState.style.textTransform = "uppercase";
+    controlState.style.letterSpacing = "0.5px";
+    controlState.textContent = "Manual Control";
+    panel.appendChild(controlState);
+    
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = "AI Decision";
+    title.style.marginBottom = "8px";
+    title.style.fontSize = "13px";
+    title.style.color = "#9fb0ba";
+    panel.appendChild(title);
+    
+    const error = document.createElement("div");
+    error.className = "error";
+    error.style.fontSize = "12px";
+    error.style.lineHeight = "1.5";
+    error.style.marginBottom = "12px";
+    error.textContent = llmState.error || "AI proposal was invalid. You can act manually.";
+    panel.appendChild(error);
+    
+    // Add fallback explanation
+    const fallbackNote = document.createElement("div");
+    fallbackNote.style.fontSize = "11px";
+    fallbackNote.style.color = "#9fb0ba";
+    fallbackNote.style.marginTop = "8px";
+    fallbackNote.style.fontStyle = "italic";
+    fallbackNote.textContent = "Switched to manual control for this turn.";
+    panel.appendChild(fallbackNote);
+    
+    messageContainer.appendChild(panel);
+  }
+  
+  actionsEl.appendChild(messageContainer);
+
+  // Show manual control indicator if not in AI mode or if AI failed
+  if (!isAiMode || llmState.status === "manual") {
+    const controlIndicator = document.createElement("div");
+    controlIndicator.style.fontSize = "11px";
+    controlIndicator.style.color = "#e6a872";
+    controlIndicator.style.marginBottom = "12px";
+    controlIndicator.style.fontWeight = "600";
+    controlIndicator.style.textTransform = "uppercase";
+    controlIndicator.style.letterSpacing = "0.5px";
+    controlIndicator.textContent = "Manual Control";
+    actionsEl.appendChild(controlIndicator);
   }
 
   const legal = engine.getLegalActions();
@@ -1151,25 +1898,45 @@ function renderPreGame() {
     committedRow.appendChild(committedValue);
     seatInfo.appendChild(committedRow);
 
-    // Prompt info (if LLM) - as text row
-    if (seatSettings[seatIndex].actionMode === "llm") {
-      const promptRow = document.createElement("div");
-      promptRow.className = "info-row";
-      const promptLabel = document.createElement("span");
-      promptLabel.className = "info-label";
-      promptLabel.textContent = "Prompt";
-      const promptValue = document.createElement("span");
-      promptValue.className = "info-value";
-      promptValue.style.fontSize = "10px";
-      promptValue.textContent = seatSettings[seatIndex].customPrompt
-        ? "Custom"
-        : getPromptName(
-          seatSettings[seatIndex].promptSelection ||
-          PromptRegistry.defaultPromptId
-        );
-      promptRow.appendChild(promptLabel);
-      promptRow.appendChild(promptValue);
-      seatInfo.appendChild(promptRow);
+    // Model preset info (if AI mode) - as text row
+    const internalActionMode = seatSettings[seatIndex].actionMode;
+    const actionMode = normalizeActionModeForUI(internalActionMode);
+    if (actionMode && actionMode !== "manual") {
+      const presetRow = document.createElement("div");
+      presetRow.className = "info-row";
+      const presetLabel = document.createElement("span");
+      presetLabel.className = "info-label";
+      presetLabel.textContent = "Model";
+      const presetValue = document.createElement("span");
+      presetValue.className = "info-value";
+      presetValue.style.fontSize = "10px";
+      const presetId = seatSettings[seatIndex].selectedPresetId;
+      if (presetId && getAllPresets) {
+        const presets = getAllPresets();
+        const preset = presets.find(p => p.id === presetId);
+        presetValue.textContent = preset ? preset.displayName : presetId;
+      } else {
+        presetValue.textContent = "Qwen Plus";
+      }
+      presetRow.appendChild(presetLabel);
+      presetRow.appendChild(presetValue);
+      seatInfo.appendChild(presetRow);
+
+      // Style/Profile info - as text row
+      const styleRow = document.createElement("div");
+      styleRow.className = "info-row";
+      const styleLabel = document.createElement("span");
+      styleLabel.className = "info-label";
+      styleLabel.textContent = "Style";
+      const styleValue = document.createElement("span");
+      styleValue.className = "info-value";
+      styleValue.style.fontSize = "10px";
+      const selectedProfileId = seatSettings[seatIndex].selectedProfileId || PromptRegistry.defaultPromptId;
+      const activeProfile = PromptRegistry.profiles.find(p => p.id === selectedProfileId) || PromptRegistry.profiles[0];
+      styleValue.textContent = activeProfile ? activeProfile.name : "Unknown";
+      styleRow.appendChild(styleLabel);
+      styleRow.appendChild(styleValue);
+      seatInfo.appendChild(styleRow);
     }
 
     const settingsButton = document.createElement("button");
@@ -1201,4 +1968,10 @@ function renderPreGame() {
   resolutionEl.textContent = "";
 }
 
-renderPreGame();
+// Initialize Phase 1-3 modules and then render
+initPhaseModules().then(() => {
+  renderPreGame();
+});
+
+
+
