@@ -37,8 +37,9 @@ export class DeepSeekAdapter implements ProviderAdapter {
    * Base URL for DeepSeek API.
    * 
    * DeepSeek uses OpenAI-compatible format.
+   * Using Volcengine (火山引擎) endpoint for DeepSeek API.
    */
-  private readonly baseUrl = "https://api.deepseek.com/chat/completions";
+  private readonly baseUrl = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
 
   /**
    * Invoke DeepSeek API.

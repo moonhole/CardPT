@@ -53,18 +53,19 @@ const MODEL_PRESET_REGISTRY: readonly ModelPreset[] = [
   },
 
   // Doubao presets
+  // Model IDs from Volcengine official model list
   {
     id: "doubao-seed-1.6-lite",
     displayName: "Doubao Seed 1.6 Lite",
     provider: "doubao",
-    modelName: "seed-1.6-lite",
+    modelName: "ep-20251226202334-45f5l",
     capability: CAPABILITY_LEVEL.L1_BASIC,
   },
   {
     id: "doubao-seed-1.8",
-    displayName: "Doubao Seed 1.8",
+    displayName: "Doubao Seed 1.6",
     provider: "doubao",
-    modelName: "seed-1.8",
+    modelName: "ep-20251226202046-b6svb",
     capability: CAPABILITY_LEVEL.L3_EXPERIMENTAL,
     uiFlags: {
       experimental: true,
@@ -77,23 +78,23 @@ const MODEL_PRESET_REGISTRY: readonly ModelPreset[] = [
     id: "deepseek-v3.2",
     displayName: "DeepSeek V3",
     provider: "deepseek",
-    modelName: "deepseek-chat",
+    modelName: "ep-20251226201345-bb46w",
     capability: CAPABILITY_LEVEL.L2_STANDARD,
   },
 
   // Gemini presets
   {
     id: "gemini-flash",
-    displayName: "Gemini Flash",
+    displayName: "Gemini 2.5 Flash",
     provider: "gemini",
-    modelName: "flash",
+    modelName: "2.5-flash",
     capability: CAPABILITY_LEVEL.L1_BASIC,
   },
   {
     id: "gemini-pro",
-    displayName: "Gemini Pro",
+    displayName: "Gemini 3 Flash Preview",
     provider: "gemini",
-    modelName: "pro",
+    modelName: "3-flash-preview",
     capability: CAPABILITY_LEVEL.L2_STANDARD,
   },
 ] as const;

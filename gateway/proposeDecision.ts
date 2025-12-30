@@ -410,8 +410,19 @@ export async function proposeDecision(
     credentialResult = createNoKeyFailure(preset.provider);
   } else if (credential.provider !== preset.provider) {
     credentialResult = createNoKeyFailure(preset.provider);
+  } else if (!credential.apiKey || typeof credential.apiKey !== "string" || !credential.apiKey.trim()) {
+    // API key is missing or empty
+    credentialResult = createNoKeyFailure(preset.provider);
   } else {
-    // Credential is provided and matches provider
+    // Credential is provided and matches provider, and has valid API key
+    // TODO: DEBUG ONLY - MUST DELETE
+    console.log("[DEBUG] Credential check passed (MUST DELETE):", JSON.stringify({
+      requestId,
+      provider: preset.provider,
+      hasApiKey: !!credential.apiKey,
+      apiKeyLength: credential.apiKey ? credential.apiKey.length : 0,
+      apiKeyPrefix: credential.apiKey ? credential.apiKey.substring(0, 8) + "..." : "none",
+    }));
     credentialResult = {
       type: "CREDENTIAL_SUCCESS",
       permitLlmInvocation: true,
@@ -456,12 +467,24 @@ export async function proposeDecision(
 
   // Invoke adapter (transport only - no parsing, no validation)
   // Log adapter invocation (safe data only - never log prompt or API key)
+  
+  // TODO: DEBUG ONLY - MUST DELETE
+  // Map provider to endpoint URL for logging
+  const endpointMap: Record<string, string> = {
+    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "doubao": "https://ark.cn-beijing.volces.com/api/v3/responses",
+    "deepseek": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+    "gemini": "GoogleGenAI SDK (generativelanguage.googleapis.com)",
+  };
+  const endpoint = endpointMap[preset.provider] || "unknown";
+  
   safeLog("log", "Adapter invocation started", {
     requestId,
     handId,
     presetId,
     provider: preset.provider,
     modelName: preset.modelName,
+    endpoint: endpoint,
   });
 
   // TODO: DEBUG ONLY - MUST DELETE
@@ -472,6 +495,7 @@ export async function proposeDecision(
     presetId,
     provider: preset.provider,
     modelName: preset.modelName,
+    endpoint: endpoint,
     prompt: fullPrompt,
     apiKey: "[REDACTED]",
   }, null, 2));
@@ -573,10 +597,11 @@ export async function proposeDecision(
     }
 
     // Network errors and other adapter errors are provider errors
+    const errorMessage = error instanceof Error ? error.message : String(error);
     const result = {
       type: "REJECTED" as const,
       reason: "provider_error" as const,
-      message: `Provider request failed for ${preset.provider}.`,
+      message: `Provider request failed for ${preset.provider}: ${errorMessage}`,
       messageCode: getRejectMessageCode("provider_error"),
       allowManualFallback: true as const,
       fallback: true as const,
@@ -589,6 +614,7 @@ export async function proposeDecision(
       reason: result.reason,
       messageCode: result.messageCode,
       errorType: error instanceof Error ? error.constructor.name : "unknown",
+      errorMessage: errorMessage,
     });
     return result;
   }

@@ -35,12 +35,14 @@ import type { ProviderAdapter } from "../providerAdapter.js";
 export class DoubaoAdapter implements ProviderAdapter {
   /**
    * Base URL for Doubao API.
-   * 
-   * Note: This assumes OpenAI-compatible format. If Doubao uses a different
-   * format, this endpoint should be updated accordingly.
+   *
+   * According to Volcengine documentation, Doubao uses Responses API:
+   * - Base: https://ark.cn-beijing.volces.com/api/v3
+   * - Endpoint: /responses (not /chat/completions)
+   * - Request format: { model: "...", input: "..." }
    */
   private readonly baseUrl =
-    "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+    "https://ark.cn-beijing.volces.com/api/v3/responses";
 
   /**
    * Invoke Doubao API.
@@ -62,21 +64,22 @@ export class DoubaoAdapter implements ProviderAdapter {
     prompt: string,
     apiKey: string
   ): Promise<string> {
-    // Build provider-specific request body
+    // Use model name directly without mapping
+    // For single application scenarios, Doubao accepts standard model names
+    const fullModelId = modelName;
+
+    // Build Doubao Responses API request body
+    // Format: { model: "...", input: "..." }
     // The prompt is already fully constructed by the gateway
     // Send it verbatim - no modification, no interpretation
     const requestBody = {
-      model: modelName,
-      messages: [
-        {
-          role: "user" as const,
-          content: prompt,
-        },
-      ],
+      model: fullModelId,
+      input: prompt,
     };
 
     // Make HTTP request
     // No special handling for agent-style models
+    // Note: fetch follows redirects by default (like curl --location)
     let response: Response;
     try {
       response = await fetch(this.baseUrl, {
@@ -86,6 +89,7 @@ export class DoubaoAdapter implements ProviderAdapter {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
+        redirect: "follow", // Explicitly follow redirects (default behavior)
       });
     } catch (error) {
       // Network-level errors
@@ -105,10 +109,26 @@ export class DoubaoAdapter implements ProviderAdapter {
       );
     }
 
+    console.log("[DEBUG] Doubao raw response:", JSON.stringify(responseBody, null, 2));
+
     // Check HTTP status
     if (!response.ok) {
       const statusText = response.statusText || "Unknown";
-      throw new Error(`HTTP error: ${response.status} ${statusText}`);
+      // Try to extract error details from response body
+      let errorDetails = "";
+      if (responseBody && typeof responseBody === "object") {
+        if ("error" in responseBody) {
+          const error = (responseBody as { error?: unknown }).error;
+          if (error && typeof error === "object" && "message" in error) {
+            errorDetails = `: ${String((error as { message?: unknown }).message)}`;
+          }
+        }
+        // Also check for direct message field
+        if ("message" in responseBody && typeof (responseBody as { message?: unknown }).message === "string") {
+          errorDetails = errorDetails || `: ${(responseBody as { message: string }).message}`;
+        }
+      }
+      throw new Error(`HTTP error: ${response.status} ${statusText}${errorDetails}`);
     }
 
     // Extract raw text content from provider response
@@ -138,12 +158,45 @@ export class DoubaoAdapter implements ProviderAdapter {
  * 
  * It simply extracts the text content field and returns it verbatim.
  * 
- * Response format (assumed OpenAI-compatible):
+ * Response formats (Doubao Responses API):
+ * Format 1: Output array format (primary format)
+ * {
+ *   output: [
+ *     {
+ *       type: "reasoning",
+ *       summary: [...]
+ *     },
+ *     {
+ *       type: "message",
+ *       role: "assistant",
+ *       content: [
+ *         {
+ *           type: "output_text",
+ *           text: "..."
+ *         }
+ *       ]
+ *     }
+ *   ]
+ * }
+ * 
+ * Format 2: Direct output string (fallback)
+ * {
+ *   output: "..." // raw text here
+ * }
+ * 
+ * Format 3: Nested in data object
+ * {
+ *   data: {
+ *     output: "..." or [...]
+ *   }
+ * }
+ * 
+ * Format 4: OpenAI-compatible format (fallback)
  * {
  *   choices: [
  *     {
  *       message: {
- *         content: "..." // raw text here (may contain tool calls, agent instructions, etc.)
+ *         content: "..."
  *       }
  *     }
  *   ]
@@ -154,32 +207,106 @@ export class DoubaoAdapter implements ProviderAdapter {
  */
 function extractTextFromDoubaoResponse(responseBody: unknown): string | null {
   // Extract text content - no interpretation, no filtering
-  if (
-    typeof responseBody === "object" &&
-    responseBody !== null &&
-    "choices" in responseBody &&
-    Array.isArray(responseBody.choices) &&
-    responseBody.choices.length > 0
-  ) {
-    const firstChoice = responseBody.choices[0];
-    if (
-      typeof firstChoice === "object" &&
-      firstChoice !== null &&
-      "message" in firstChoice
-    ) {
-      const message = firstChoice.message;
+  // Try multiple possible response formats
+  if (typeof responseBody === "object" && responseBody !== null) {
+    const obj = responseBody as Record<string, unknown>;
+    
+    // Format 1: Output array format (primary format for Responses API)
+    // output is an array containing objects with type: "message" and content array
+    if ("output" in obj && Array.isArray(obj.output)) {
+      // Find the last message-type item in the output array
+      for (let i = obj.output.length - 1; i >= 0; i--) {
+        const outputItem = obj.output[i];
+        if (
+          typeof outputItem === "object" &&
+          outputItem !== null &&
+          "type" in outputItem &&
+          outputItem.type === "message" &&
+          "role" in outputItem &&
+          outputItem.role === "assistant" &&
+          "content" in outputItem &&
+          Array.isArray(outputItem.content)
+        ) {
+          // Look for output_text content items
+          for (const contentItem of outputItem.content) {
+            if (
+              typeof contentItem === "object" &&
+              contentItem !== null &&
+              "type" in contentItem &&
+              contentItem.type === "output_text" &&
+              "text" in contentItem &&
+              typeof contentItem.text === "string"
+            ) {
+              return contentItem.text;
+            }
+          }
+        }
+      }
+    }
+    
+    // Format 2: Direct output string (fallback)
+    if ("output" in obj && typeof obj.output === "string") {
+      return obj.output;
+    }
+    
+    // Format 3: Nested in data object
+    if ("data" in obj && typeof obj.data === "object" && obj.data !== null) {
+      const data = obj.data as Record<string, unknown>;
+      // Check if data.output is an array
+      if ("output" in data && Array.isArray(data.output)) {
+        // Same logic as Format 1
+        for (let i = data.output.length - 1; i >= 0; i--) {
+          const outputItem = data.output[i];
+          if (
+            typeof outputItem === "object" &&
+            outputItem !== null &&
+            "type" in outputItem &&
+            outputItem.type === "message" &&
+            "role" in outputItem &&
+            outputItem.role === "assistant" &&
+            "content" in outputItem &&
+            Array.isArray(outputItem.content)
+          ) {
+            for (const contentItem of outputItem.content) {
+              if (
+                typeof contentItem === "object" &&
+                contentItem !== null &&
+                "type" in contentItem &&
+                contentItem.type === "output_text" &&
+                "text" in contentItem &&
+                typeof contentItem.text === "string"
+              ) {
+                return contentItem.text;
+              }
+            }
+          }
+        }
+      }
+      // Check if data.output is a string
+      if ("output" in data && typeof data.output === "string") {
+        return data.output;
+      }
+    }
+    
+    // Format 4: OpenAI-compatible format (fallback)
+    if ("choices" in obj && Array.isArray(obj.choices) && obj.choices.length > 0) {
+      const firstChoice = obj.choices[0];
       if (
-        typeof message === "object" &&
-        message !== null &&
-        "content" in message &&
-        typeof message.content === "string"
+        typeof firstChoice === "object" &&
+        firstChoice !== null &&
+        "message" in firstChoice
       ) {
-        // Return content verbatim - even if it contains tool calls or agent instructions
-        // The Gateway layer will handle interpretation, not the adapter
-        return message.content;
+        const message = firstChoice.message;
+        if (
+          typeof message === "object" &&
+          message !== null &&
+          "content" in message &&
+          typeof message.content === "string"
+        ) {
+          return message.content;
+        }
       }
     }
   }
   return null;
 }
-

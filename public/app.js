@@ -48,6 +48,8 @@ let llmState = {
   status: "idle",
   proposal: null,
   error: "",
+  countdown: null, // Remaining seconds for timeout
+  countdownTimer: null, // Timer ID for countdown updates
 };
 
 const PromptRegistry = {
@@ -261,7 +263,8 @@ async function requestLlmAction(_input) {
     : [];
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  // Increased timeout to 30 seconds to accommodate slower LLM responses (e.g., Gemini)
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
   try {
     const mod = await import("/dist/engine/buildDecisionInput.js");
     const buildDecisionInput = mod.buildDecisionInput;
@@ -1245,7 +1248,11 @@ function renderActions() {
   }
 
   if (llmState.turnKey !== turnKey) {
-    llmState = { turnKey, status: "idle", proposal: null, error: "" };
+    // Clear any existing countdown timer
+    if (llmState.countdownTimer) {
+      clearInterval(llmState.countdownTimer);
+    }
+    llmState = { turnKey, status: "idle", proposal: null, error: "", countdown: null, countdownTimer: null };
   }
 
   if (isAiMode) {
@@ -1253,6 +1260,17 @@ function renderActions() {
 
     if (llmState.status === "idle") {
       llmState.status = "loading";
+      // Start countdown timer (30 seconds)
+      llmState.countdown = 30;
+      llmState.countdownTimer = setInterval(() => {
+        if (llmState.countdown > 0) {
+          llmState.countdown--;
+          render(); // Re-render to update countdown display
+        } else {
+          clearInterval(llmState.countdownTimer);
+          llmState.countdownTimer = null;
+        }
+      }, 1000);
       // Use internal actionMode for LLM request (ai → ai_experimental)
       const requestActionMode = normalizeActionModeForInternal(actionMode);
       requestLlmAction({
@@ -1263,6 +1281,13 @@ function renderActions() {
         selectedProfileId: seatSettings[state.actionSeat]?.selectedProfileId,
       })
         .then((proposal) => {
+          // Clear countdown timer
+          if (llmState.countdownTimer) {
+            clearInterval(llmState.countdownTimer);
+            llmState.countdownTimer = null;
+          }
+          llmState.countdown = null;
+          
           const resolved = resolveLlmDecision(proposal, legal);
           if (!resolved.ok) {
             llmState = {
@@ -1270,6 +1295,8 @@ function renderActions() {
               status: "manual",
               proposal: null,
               error: resolved.error,
+              countdown: null,
+              countdownTimer: null,
             };
             render();
             return;
@@ -1283,10 +1310,19 @@ function renderActions() {
               action: resolved.action, // 已保证可执行
             },
             error: "",
+            countdown: null,
+            countdownTimer: null,
           };
           render();
         })
         .catch((err) => {
+          // Clear countdown timer
+          if (llmState.countdownTimer) {
+            clearInterval(llmState.countdownTimer);
+            llmState.countdownTimer = null;
+          }
+          llmState.countdown = null;
+          
           console.warn("[LLM] proposal failed branch", err);
           // Extract user-friendly message from gateway rejection
           let errorMessage = "AI proposal failed. You can act manually.";
@@ -1302,6 +1338,8 @@ function renderActions() {
             status: "manual",
             proposal: null,
             error: errorMessage,
+            countdown: null,
+            countdownTimer: null,
           };
           render();
         });
@@ -1345,10 +1383,20 @@ function renderActions() {
       title.style.color = "#9fb0ba";
       panel.appendChild(title);
       const body = document.createElement("div");
-      body.textContent = "Awaiting proposal...";
       body.style.fontSize = "12px";
       body.style.color = "#9fb0ba";
       body.style.fontStyle = "italic";
+      
+      // Show countdown if available
+      if (llmState.countdown !== null && llmState.countdown > 0) {
+        const countdownText = document.createElement("span");
+        countdownText.style.color = "#6fb3ff";
+        countdownText.style.fontWeight = "600";
+        countdownText.textContent = `${llmState.countdown}s`;
+        body.appendChild(countdownText);
+        body.appendChild(document.createTextNode(" remaining • "));
+      }
+      body.appendChild(document.createTextNode("Awaiting proposal..."));
       panel.appendChild(body);
       actionsEl.appendChild(panel);
       return;
@@ -1483,12 +1531,16 @@ function renderActions() {
       followButton.textContent = "Follow AI";
       followButton.style.fontWeight = "600";
       followButton.onclick = () => {
+        // Clear countdown timer when following AI proposal
+        if (llmState.countdownTimer) {
+          clearInterval(llmState.countdownTimer);
+        }
         engine.applyAction({
           actor: state.actionSeat,
           type: actionType.toLowerCase(),
           amount: amount === null ? null : Number(amount),
         });
-        llmState = { turnKey: null, status: "idle", proposal: null, error: "" };
+        llmState = { turnKey: null, status: "idle", proposal: null, error: "", countdown: null, countdownTimer: null };
         render();
       };
       const controlButton = document.createElement("button");
@@ -1496,11 +1548,17 @@ function renderActions() {
       controlButton.style.fontWeight = "500";
       controlButton.style.opacity = "0.85";
       controlButton.onclick = () => {
+        // Clear countdown timer when user takes manual control
+        if (llmState.countdownTimer) {
+          clearInterval(llmState.countdownTimer);
+        }
         llmState = {
           turnKey,
           status: "manual",
           proposal: null,
           error: "LLM proposal canceled. Manual controls enabled for this turn.",
+          countdown: null,
+          countdownTimer: null,
         };
         render();
       };
@@ -1573,6 +1631,9 @@ function renderActions() {
     controlIndicator.style.fontWeight = "600";
     controlIndicator.style.textTransform = "uppercase";
     controlIndicator.style.letterSpacing = "0.5px";
+    controlIndicator.style.width = "100%"; // Ensure it takes full width to force new line
+    controlIndicator.style.flexBasis = "100%"; // Force full width in flex container
+    controlIndicator.style.textAlign = "center"; // Center the text
     controlIndicator.textContent = "Manual Control";
     actionsEl.appendChild(controlIndicator);
   }
@@ -1773,14 +1834,14 @@ function formatDriverAsJudgment(key) {
 
 
 function renderSummary(snapshot) {
-  if (hasNewHandStarted(snapshot.events, lastSummaryHandId)) {
-    potsEl.textContent = "";
-    showdownEl.textContent = "";
-    resolutionEl.textContent = "";
-    lastSummaryHandId = snapshot.state.handId;
-    return;
-  }
   const summary = getLatestHandSummary(snapshot.events);
+  
+  // Check if a new hand has started
+  const newHandStarted = hasNewHandStarted(snapshot.events, lastSummaryHandId);
+  if (newHandStarted) {
+    lastSummaryHandId = snapshot.state.handId;
+  }
+  
   potsEl.innerHTML = "";
   showdownEl.innerHTML = "";
   resolutionEl.innerHTML = "";

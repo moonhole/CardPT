@@ -76,30 +76,27 @@ Build output: `dist/engine/index.js`
 
 ## Run
 
-Install dependencies and set API key:
+Install dependencies and start the server:
 
-**Windows (Command Prompt):**
 ```sh
 npm install
-set DASHSCOPE_API_KEY=your_key_here
-npm run dev
-```
-
-**Windows (PowerShell):**
-```powershell
-npm install
-$env:DASHSCOPE_API_KEY="your_key_here"
-npm run dev
-```
-
-**macOS / Linux:**
-```sh
-npm install
-export DASHSCOPE_API_KEY=your_key_here
 npm run dev
 ```
 
 Open: `http://localhost:8000/`
+
+## API Key Configuration
+
+API keys are configured through the UI:
+1. Click the settings button (🔧) on any seat card
+2. Enter your API keys for the providers you want to use
+3. Keys are stored locally in your browser (localStorage) - optional
+4. Keys are never sent to the server except during LLM API requests
+5. Each provider requires its own API key:
+   - **Qwen**: DashScope API key
+   - **Gemini**: Google AI API key
+   - **Doubao**: Volcengine ARK API key
+   - **DeepSeek**: DeepSeek API key
 
 ## Determinism
 
